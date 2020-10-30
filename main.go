@@ -1,91 +1,45 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
+	"server"
+	"time"
 
 	"github.com/bitly/go-simplejson"
 )
 
+const channelYuuto = "UCSncTY7ruEdF36OoLv-_ZQg"
+
 func main() {
 	b, err := ioutil.ReadFile("settings.json")
 	if err != nil {
-		fmt.Println(err)
+		log.Fatalln(err)
 	}
 
 	settings, err := simplejson.NewJson(b)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatalln(err)
 	}
 
-	certPath, err := settings.Get("ssl_cert").String()
-	if err != nil {
-		fmt.Println(err)
-	}
+	host := settings.Get("host").MustString()
+	port := settings.Get("port").MustInt(8443)
 
-	keyPath, err := settings.Get("ssl_key").String()
-	if err != nil {
-		fmt.Println(err)
-	}
+	server := server.NewServer(host, port)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		content, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			fmt.Println(err)
-		}
+	server.Subscribe(channelYuuto)
 
-		fmt.Println(string(content))
+	// Start webserver
+	go server.ListenAndServe(fmt.Sprintf(":%d", port))
 
-		/*
-			Read Telegram update
+	time.Sleep(time.Second * 5)
+	log.Println("Press Enter for graceful shutdown...")
 
-			`Update`
-			This object represents an incoming update.
-			At most one of the optional parameters can be present in any given update.
+	var input string
+	fmt.Scanln(&input)
 
-			Documentation: https://core.telegram.org/bots/api#update
-		*/
-		update, err := simplejson.NewJson(content)
-		if err != nil {
-			fmt.Println(err)
-		}
+	server.Unsubscribe(channelYuuto)
 
-		/*
-			Get Telegram message
-
-			`Message`
-			This object represents a message.
-
-			Documentation: https://core.telegram.org/bots/api#message
-		*/
-		if message, ok := update.CheckGet("message"); ok {
-			if text, ok := message.CheckGet("text"); ok {
-				textString := text.MustString()
-
-				if entities, ok := message.CheckGet("entities"); ok {
-					/*
-						Loop through Telegram message entities
-
-						`MessageEntity`
-						This object represents one special entity in a text message. For example, hashtags, usernames, URLs, etc.
-					*/
-					for _, e := range entities.MustArray() {
-						entity := e.(map[string]interface{})
-
-						if entity["type"] == "url" {
-							offset, _ := entity["offset"].(json.Number).Int64()
-							length, _ := entity["length"].(json.Number).Int64()
-							fmt.Println(textString[offset : offset+length])
-							break
-						}
-					}
-				}
-			}
-		}
-	})
-
-	log.Fatalln(http.ListenAndServeTLS(":8443", certPath, keyPath, nil))
+	time.Sleep(time.Second * 5)
 }
