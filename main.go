@@ -24,14 +24,25 @@ func main() {
 	}
 
 	host := settings.Get("host").MustString()
-	port := settings.Get("port").MustInt(8443)
+	httpPort := settings.Get("http_port").MustInt(8080)
+	httpsPort := settings.Get("https_port").MustInt(8443)
 
-	server := server.NewServer(host, port)
+	certFile, err := settings.Get("ssl_cert").String()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	keyFile, err := settings.Get("ssl_key").String()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	server := server.NewServer(host, httpPort, httpsPort)
 
 	server.Subscribe(channelYuuto)
 
 	// Start webserver
-	go server.ListenAndServe(fmt.Sprintf(":%d", port))
+	go server.ListenAndServeTLS(certFile, keyFile)
 
 	time.Sleep(time.Second * 5)
 	log.Println("Press Enter for graceful shutdown...")

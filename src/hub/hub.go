@@ -17,13 +17,8 @@ type Client struct {
 }
 
 // NewClient returns a pointer to a new `Client` object.
-func NewClient(host string, port int, mux *http.ServeMux) *Client {
-	url := fmt.Sprintf("%s:%d", host, port)
-	client := gohubbub.NewClient(url, "Hub Client")
-
-	if mux == nil {
-		mux = http.DefaultServeMux
-	}
+func NewClient(addr string, mux *http.ServeMux) *Client {
+	client := gohubbub.NewClient(addr, "Hub Client")
 
 	client.RegisterHandler(mux)
 
