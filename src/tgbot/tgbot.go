@@ -8,11 +8,18 @@ import (
 
 // Server is a Telegram Bot Server that can handle incoming and actively send messages.
 type Server struct {
+	apiClient *http.Client
+
+	token string
 }
 
 // NewServer returns a pointer to a new `Server` object.
-func NewServer(mux *http.ServeMux) *Server {
-	server := &Server{}
+func NewServer(token string, mux *http.ServeMux) *Server {
+	server := &Server{
+		apiClient: &http.Client{},
+
+		token: token,
+	}
 
 	server.registerHandler(mux)
 

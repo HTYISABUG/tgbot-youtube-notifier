@@ -17,19 +17,24 @@ type Server struct {
 	httpPort  int
 	httpsPort int
 	serveMux  *http.ServeMux
+
+	notifyCh chan hub.Entry
 }
 
 // NewServer returns a pointer to a new `Server` object.
-func NewServer(host string, httpPort, httpsPort int) *Server {
+func NewServer(host string, httpPort, httpsPort int, botToken string) *Server {
 	mux := new(http.ServeMux)
+	notifyCh := make(chan hub.Entry, 64)
 	return &Server{
-		hub: hub.NewClient(fmt.Sprintf("%s:%d", host, httpPort), mux),
-		tg:  tgbot.NewServer(mux),
+		hub: hub.NewClient(fmt.Sprintf("%s:%d", host, httpPort), mux, notifyCh),
+		tg:  tgbot.NewServer(botToken, mux),
 
 		host:      host,
 		httpPort:  httpPort,
 		httpsPort: httpsPort,
 		serveMux:  mux,
+
+		notifyCh: notifyCh,
 	}
 }
 
@@ -37,6 +42,9 @@ func NewServer(host string, httpPort, httpsPort int) *Server {
 func (server *Server) ListenAndServeTLS(certFile, keyFile string) {
 	// Run hub subscription requests
 	go server.hub.Start()
+
+	// Start service relay
+	go server.serviceRelay()
 
 	// Since WebSub library can only send http link,
 	// we need a redirect server to redirect request to TLS server
@@ -63,4 +71,13 @@ func (server *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
 	url := "https://" + addr + r.RequestURI
 	// log.Printf("Redirect http://%v to https://%s", r.Host, addr)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+}
+
+const testChatID = 283803902
+
+func (server *Server) serviceRelay() {
+	for e := range server.notifyCh {
+		// fmt.Printf("%+v\n", e) // DEBUG
+		server.tg.SendMessage(testChatID, entry2text(e))
+	}
 }

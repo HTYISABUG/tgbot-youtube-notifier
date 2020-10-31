@@ -14,16 +14,20 @@ const topicURLPrefix = "https://www.youtube.com/xml/feeds/videos.xml?channel_id=
 // Client is a WebSub client that can receive notification from Youtube.
 type Client struct {
 	*gohubbub.Client
+
+	notifyCh chan<- Entry
 }
 
 // NewClient returns a pointer to a new `Client` object.
-func NewClient(addr string, mux *http.ServeMux) *Client {
+func NewClient(addr string, mux *http.ServeMux, notifyCh chan<- Entry) *Client {
 	client := gohubbub.NewClient(addr, "Hub Client")
 
 	client.RegisterHandler(mux)
 
 	return &Client{
 		Client: client,
+
+		notifyCh: notifyCh,
 	}
 }
 
@@ -31,7 +35,7 @@ func NewClient(addr string, mux *http.ServeMux) *Client {
 // If a handler already exists for the given topic it will be overridden.
 func (client *Client) Subscribe(channelID string) {
 	topicURL := topicURLPrefix + channelID
-	client.Client.Subscribe(googleHub, topicURL, handler)
+	client.Client.Subscribe(googleHub, topicURL, client.handler)
 }
 
 // Unsubscribe sends an unsubscribe notification and removes the subscription.
@@ -40,7 +44,7 @@ func (client *Client) Unsubscribe(channelID string) {
 	client.Client.Unsubscribe(topicURL)
 }
 
-func handler(contentType string, body []byte) {
+func (client *Client) handler(contentType string, body []byte) {
 	var feed Feed
 
 	err := xml.Unmarshal(body, &feed)
@@ -48,11 +52,7 @@ func handler(contentType string, body []byte) {
 		fmt.Println(string(body))
 	}
 
-	entry := feed.Entry
+	// fmt.Printf("%+v\n", feed.Entry)
 
-	fmt.Println("VideoID:", entry.VideoID)
-	fmt.Println("ChannelID:", entry.ChannelID)
-	fmt.Println("Title:", entry.Title)
-	fmt.Println("Published:", entry.Published)
-	fmt.Println("Updated:", entry.Updated)
+	client.notifyCh <- feed.Entry
 }

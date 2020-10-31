@@ -27,6 +27,11 @@ func main() {
 	httpPort := settings.Get("http_port").MustInt(8080)
 	httpsPort := settings.Get("https_port").MustInt(8443)
 
+	botToken, err := settings.Get("bot_token").String()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	certFile, err := settings.Get("ssl_cert").String()
 	if err != nil {
 		log.Fatalln(err)
@@ -37,7 +42,7 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	server := server.NewServer(host, httpPort, httpsPort)
+	server := server.NewServer(host, httpPort, httpsPort, botToken)
 
 	server.Subscribe(channelYuuto)
 
