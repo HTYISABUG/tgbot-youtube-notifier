@@ -1,53 +1,54 @@
 package main
 
 import (
+	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"server"
 	"time"
-
-	"github.com/bitly/go-simplejson"
 )
 
 const channelYuuto = "UCSncTY7ruEdF36OoLv-_ZQg"
 
+var httpPort = flag.Int("http_port", 8080, "The port for redirect server to serve from")
+var httpsPort = flag.Int("https_port", 8443, "The port for main server to serve from")
+
+type setting struct {
+	Host     string `json:"host"`
+	BotToken string `json:"bot_token"`
+	CertFile string `json:"ssl_cert"`
+	KeyFile  string `json:"ssl_key"`
+}
+
 func main() {
+	flag.Parse()
+
 	b, err := ioutil.ReadFile("settings.json")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	settings, err := simplejson.NewJson(b)
-	if err != nil {
+	var setting setting
+	if err := json.Unmarshal(b, &setting); err != nil {
 		log.Fatalln(err)
 	}
 
-	host := settings.Get("host").MustString()
-	httpPort := settings.Get("http_port").MustInt(8080)
-	httpsPort := settings.Get("https_port").MustInt(8443)
-
-	botToken, err := settings.Get("bot_token").String()
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	certFile, err := settings.Get("ssl_cert").String()
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	keyFile, err := settings.Get("ssl_key").String()
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	server := server.NewServer(host, httpPort, httpsPort, botToken)
+	server := server.NewServer(
+		setting.Host,
+		*httpPort,
+		*httpsPort,
+		setting.BotToken,
+	)
 
 	server.Subscribe(channelYuuto)
 
 	// Start webserver
-	go server.ListenAndServeTLS(certFile, keyFile)
+	go server.ListenAndServeTLS(
+		setting.CertFile,
+		setting.KeyFile,
+	)
 
 	time.Sleep(time.Second * 5)
 	log.Println("Press Enter for graceful shutdown...")
