@@ -1,7 +1,6 @@
 package hub
 
-// Feed is for containing WebSub notification.
-type Feed struct {
+type feed struct {
 	Entry Entry `xml:"entry"`
 }
 

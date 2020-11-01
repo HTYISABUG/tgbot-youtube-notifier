@@ -45,7 +45,7 @@ func (client *Client) Unsubscribe(channelID string) {
 }
 
 func (client *Client) handler(contentType string, body []byte) {
-	var feed Feed
+	var feed feed
 
 	err := xml.Unmarshal(body, &feed)
 	if err != nil {
