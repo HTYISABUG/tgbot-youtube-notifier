@@ -18,3 +18,9 @@ func entry2text(entry hub.Entry) string {
 		tgbot.ItalicText(entry.Author),
 	)
 }
+
+// SubscribeInfo presents who subscribe which channel
+type SubscribeInfo struct {
+	UserID    int
+	ChannelID string
+}

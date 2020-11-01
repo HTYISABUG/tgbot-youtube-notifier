@@ -78,6 +78,6 @@ const testChatID = 283803902
 func (server *Server) serviceRelay() {
 	for e := range server.notifyCh {
 		// fmt.Printf("%+v\n", e) // DEBUG
-		server.tg.SendMessage(testChatID, entry2text(e))
+		server.tg.SendMessage(testChatID, entry2text(e), nil)
 	}
 }

@@ -42,7 +42,7 @@ func main() {
 		setting.BotToken,
 	)
 
-	server.Subscribe(channelYuuto)
+	// server.Subscribe(channelYuuto)
 
 	// Start webserver
 	go server.ListenAndServeTLS(
@@ -56,7 +56,7 @@ func main() {
 	var input string
 	fmt.Scanln(&input)
 
-	server.Unsubscribe(channelYuuto)
+	// server.Unsubscribe(channelYuuto)
 
 	time.Sleep(time.Second * 5)
 }

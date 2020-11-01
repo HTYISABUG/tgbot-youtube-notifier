@@ -9,6 +9,7 @@ type message struct {
 	ID       int             `json:"messade_id"`
 	Date     int             `json:"date"`
 	From     *user           `json:"from"`
+	Chat     *chat           `json:"chat"`
 	Text     *string         `json:"text"`
 	Entities []messageEntity `json:"entities"`
 }
@@ -16,6 +17,11 @@ type message struct {
 type user struct {
 	ID    int   `json:"id"`
 	IsBot *bool `json:"is_bot"`
+}
+
+type chat struct {
+	ID   int    `json:"id"`
+	Type string `json:"type"`
 }
 
 type messageEntity struct {
