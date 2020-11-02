@@ -52,6 +52,16 @@ func NewServer(host string, httpPort, httpsPort int, botToken, dbPath string) (*
 
 // ListenAndServeTLS starts a HTTPS server using server ServeMux
 func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
+	// Recover all subscribed channels
+	channels, err := s.db.GetSubscibedChannels()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	for _, cid := range channels {
+		s.hub.Subscribe(cid)
+	}
+
 	// Run hub subscription requests
 	go s.hub.Start()
 
@@ -70,7 +80,7 @@ func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 	log.Fatalln(http.ListenAndServeTLS(fmt.Sprintf(":%d", s.httpsPort), certFile, keyFile, s.serveMux))
 }
 
-func (s *Server) Subscribe(info tgbot.SubscribeInfo) error {
+func (s *Server) subscribe(info tgbot.SubscribeInfo) error {
 	s.hub.Subscribe(info.ChannelID)
 
 	if err := s.db.Subscribe(info); err != nil {
@@ -98,10 +108,17 @@ func (s *Server) serviceRelay() {
 		select {
 		case e := <-s.notifyCh:
 			// fmt.Printf("%+v\n", e) // DEBUG
-			go s.tg.SendMessage(testChatID, entry2text(e), nil)
+			chatIDs, err := s.db.GetSubsciberChats(e.ChannelID)
+			if err != nil {
+				log.Println(err)
+			}
+
+			for _, id := range chatIDs {
+				go s.tg.SendMessage(id, entry2text(e), nil)
+			}
 		case info := <-s.subCh:
-			// fmt.Printf("%+v\n", info) // DEBUG
-			if err, channelID := s.Subscribe(info), tgbot.Escape(info.ChannelID); err == nil {
+			if err, channelID := s.subscribe(info), tgbot.Escape(info.ChannelID); err == nil {
+				// Send success message
 				go s.tg.SendMessage(info.ChatID, fmt.Sprintf(
 					"%s %s successful",
 					tgbot.ItalicText(tgbot.BordText("Subscribe")),
@@ -111,6 +128,7 @@ func (s *Server) serviceRelay() {
 					"disable_notification":     true,
 				})
 			} else {
+				// Send failed message
 				go s.tg.SendMessage(info.ChatID, fmt.Sprintf(
 					"%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later.",
 					tgbot.ItalicText(tgbot.BordText("Subscribe")),

@@ -71,3 +71,50 @@ func (db *Database) Subscribe(info tgbot.SubscribeInfo) error {
 
 	return nil
 }
+
+// GetSubsciberChats returns all user chat_id that subscribes the channel
+func (db *Database) GetSubsciberChats(channelID string) ([]int64, error) {
+	stmt, err := db.Prepare("SELECT chat_id FROM users INNER JOIN subscribers ON users.id == subscribers.user_id WHERE subscribers.channel_id = ?")
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := stmt.Query(channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	var id int64
+	var chatIDs []int64
+	for rows.Next() {
+		err := rows.Scan(&id)
+		if err != nil {
+			return nil, err
+		}
+
+		chatIDs = append(chatIDs, id)
+	}
+
+	return chatIDs, nil
+}
+
+// GetSubscibedChannels returns all subscribed channels
+func (db *Database) GetSubscibedChannels() ([]string, error) {
+	rows, err := db.Query("SELECT id FROM channels;")
+	if err != nil {
+		return nil, err
+	}
+
+	var id string
+	var channels []string
+	for rows.Next() {
+		err := rows.Scan(&id)
+		if err != nil {
+			return nil, err
+		}
+
+		channels = append(channels, id)
+	}
+
+	return channels, nil
+}
