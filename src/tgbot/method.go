@@ -13,7 +13,7 @@ import (
 const tgAPIURLPrefix = "https://api.telegram.org"
 
 // SendMessage requests to send text message to chatID
-func (server *Server) SendMessage(chatID int, text string, kwargs map[string]interface{}) {
+func (server *Server) SendMessage(chatID int64, text string, kwargs map[string]interface{}) {
 	body := simplejson.New()
 	body.Set("chat_id", chatID)
 	body.Set("text", text)

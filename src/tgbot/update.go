@@ -20,7 +20,7 @@ type user struct {
 }
 
 type chat struct {
-	ID   int    `json:"id"`
+	ID   int64  `json:"id"`
 	Type string `json:"type"`
 }
 

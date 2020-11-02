@@ -15,17 +15,26 @@ type httpRequester interface {
 	Do(req *http.Request) (resp *http.Response, err error)
 }
 
+// SubscribeInfo presents who on which chat subscribes which channel
+type SubscribeInfo struct {
+	UserID    int
+	ChatID    int64
+	ChannelID string
+}
+
 // Server is a Telegram Bot Server that can handle incoming and actively send messages.
 type Server struct {
 	httpRequester httpRequester
+	subCh         chan<- SubscribeInfo
 
 	token string
 }
 
 // NewServer returns a pointer to a new `Server` object.
-func NewServer(token string, mux *http.ServeMux) *Server {
+func NewServer(token string, mux *http.ServeMux, subCh chan<- SubscribeInfo) *Server {
 	server := &Server{
 		httpRequester: &http.Client{},
+		subCh:         subCh,
 
 		token: token,
 	}
@@ -67,15 +76,24 @@ func (server *Server) subscribeHandler(update *update) {
 			if b, err := server.isValidYtChannel(e); err == nil && b {
 				url, _ := url.Parse(e)
 
+				userID := update.Message.From.ID
+				chatID := update.Message.Chat.ID
 				channelID := strings.Split(url.Path, "/")[2]
 				channelID = regexp.QuoteMeta(channelID)
-				e = regexp.QuoteMeta(e)
 
+				server.subCh <- SubscribeInfo{
+					UserID:    userID,
+					ChatID:    chatID,
+					ChannelID: channelID,
+				}
+
+				e = regexp.QuoteMeta(e)
 				results = append(results, fmt.Sprintf(
-					"%s %s \\.\\.\\.",
+					"%s %s",
 					ItalicText(BordText("Subscribing")),
 					InlineLink(channelID, e),
 				))
+
 			} else if err != nil {
 				log.Println(err)
 
@@ -90,7 +108,10 @@ func (server *Server) subscribeHandler(update *update) {
 		server.SendMessage(
 			update.Message.Chat.ID,
 			strings.Join(results, "\n"),
-			map[string]interface{}{"disable_web_page_preview": true},
+			map[string]interface{}{
+				"disable_web_page_preview": true,
+				"disable_notification":     true,
+			},
 		)
 
 		// fmt.Println(strings.Join(results, "\n"))

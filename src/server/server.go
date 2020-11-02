@@ -19,15 +19,17 @@ type Server struct {
 	serveMux  *http.ServeMux
 
 	notifyCh chan hub.Entry
+	subCh    chan tgbot.SubscribeInfo
 }
 
 // NewServer returns a pointer to a new `Server` object.
 func NewServer(host string, httpPort, httpsPort int, botToken string) *Server {
 	mux := new(http.ServeMux)
 	notifyCh := make(chan hub.Entry, 64)
+	subCh := make(chan tgbot.SubscribeInfo, 64)
 	return &Server{
 		hub: hub.NewClient(fmt.Sprintf("%s:%d", host, httpPort), mux, notifyCh),
-		tg:  tgbot.NewServer(botToken, mux),
+		tg:  tgbot.NewServer(botToken, mux, subCh),
 
 		host:      host,
 		httpPort:  httpPort,
@@ -35,6 +37,7 @@ func NewServer(host string, httpPort, httpsPort int, botToken string) *Server {
 		serveMux:  mux,
 
 		notifyCh: notifyCh,
+		subCh:    subCh,
 	}
 }
 
@@ -76,8 +79,14 @@ func (server *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
 const testChatID = 283803902
 
 func (server *Server) serviceRelay() {
-	for e := range server.notifyCh {
-		// fmt.Printf("%+v\n", e) // DEBUG
-		server.tg.SendMessage(testChatID, entry2text(e), nil)
+	for {
+		select {
+		case e := <-server.notifyCh:
+			// fmt.Printf("%+v\n", e) // DEBUG
+			server.tg.SendMessage(testChatID, entry2text(e), nil)
+		case info := <-server.subCh:
+			fmt.Printf("%+v\n", info) // DEBUG
+			// server.hub.Subscribe(info.ChannelID)
+		}
 	}
 }
