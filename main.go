@@ -20,6 +20,7 @@ type setting struct {
 	BotToken string `json:"bot_token"`
 	CertFile string `json:"ssl_cert"`
 	KeyFile  string `json:"ssl_key"`
+	DBPath   string `json:"database"`
 }
 
 func main() {
@@ -35,14 +36,17 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	server := server.NewServer(
+	server, err := server.NewServer(
 		setting.Host,
 		*httpPort,
 		*httpsPort,
 		setting.BotToken,
+		setting.DBPath,
 	)
 
-	// server.Subscribe(channelYuuto)
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 	// Start webserver
 	go server.ListenAndServeTLS(
@@ -55,8 +59,6 @@ func main() {
 
 	var input string
 	fmt.Scanln(&input)
-
-	// server.Unsubscribe(channelYuuto)
 
 	time.Sleep(time.Second * 5)
 }

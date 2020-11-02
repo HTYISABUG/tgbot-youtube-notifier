@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 )
 
@@ -79,7 +78,6 @@ func (server *Server) subscribeHandler(update *update) {
 				userID := update.Message.From.ID
 				chatID := update.Message.Chat.ID
 				channelID := strings.Split(url.Path, "/")[2]
-				channelID = regexp.QuoteMeta(channelID)
 
 				server.subCh <- SubscribeInfo{
 					UserID:    userID,
@@ -87,7 +85,7 @@ func (server *Server) subscribeHandler(update *update) {
 					ChannelID: channelID,
 				}
 
-				e = regexp.QuoteMeta(e)
+				channelID, e = Escape(channelID), Escape(e)
 				results = append(results, fmt.Sprintf(
 					"%s %s",
 					ItalicText(BordText("Subscribing")),
@@ -97,10 +95,10 @@ func (server *Server) subscribeHandler(update *update) {
 			} else if err != nil {
 				log.Println(err)
 
-				e := regexp.QuoteMeta(e)
+				e := Escape(e)
 				results = append(results, fmt.Sprintf("Subscribe %s failed, internal server error", e))
 			} else if !b {
-				e := regexp.QuoteMeta(e)
+				e := Escape(e)
 				results = append(results, fmt.Sprintf("%s is not a valid YouTube channel", e))
 			}
 		}
