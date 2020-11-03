@@ -12,9 +12,9 @@ func entry2text(entry hub.Entry) string {
 	return fmt.Sprintf(
 		"%s\n%s",
 		tgbot.InlineLink(
-			tgbot.BordText(entry.Title),
+			tgbot.BordText(tgbot.Escape(entry.Title)),
 			ytVideoURLPrefix+entry.VideoID,
 		),
-		tgbot.ItalicText(entry.Author),
+		tgbot.ItalicText(tgbot.Escape(entry.Author)),
 	)
 }
