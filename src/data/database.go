@@ -3,6 +3,7 @@ package data
 import (
 	"database/sql"
 	"tgbot"
+	"ytapi"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 driver
 )
@@ -19,7 +20,7 @@ func NewDatabase(dataSourceName string) (*Database, error) {
 		return nil, err
 	}
 
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS channels (id TEXT PRIMARY KEY);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS channels (id TEXT PRIMARY KEY, title TEXT);")
 	if err != nil {
 		return nil, err
 	}
@@ -38,18 +39,18 @@ func NewDatabase(dataSourceName string) (*Database, error) {
 }
 
 // Subscribe registers info into corresponding table
-func (db *Database) Subscribe(info tgbot.SubscribeInfo) error {
-	_, err := db.Exec("INSERT OR IGNORE INTO channels (id) VALUES (?);", info.ChannelID)
+func (db *Database) Subscribe(subInfo tgbot.SubscribeInfo, chInfo ytapi.ChannelInfo) error {
+	_, err := db.Exec("INSERT OR IGNORE INTO channels (id, title) VALUES (?, ?);", subInfo.ChannelID, chInfo.Title)
 	if err != nil {
 		return err
 	}
 
-	_, err = db.Exec("INSERT OR IGNORE INTO users (id, chat_id) VALUES (?, ?);", info.UserID, info.ChatID)
+	_, err = db.Exec("INSERT OR IGNORE INTO users (id, chat_id) VALUES (?, ?);", subInfo.UserID, subInfo.ChatID)
 	if err != nil {
 		return err
 	}
 
-	_, err = db.Exec("INSERT OR IGNORE INTO subscribers (user_id, channel_id) VALUES (?, ?);", info.UserID, info.ChannelID)
+	_, err = db.Exec("INSERT OR IGNORE INTO subscribers (user_id, channel_id) VALUES (?, ?);", subInfo.UserID, subInfo.ChannelID)
 	if err != nil {
 		return err
 	}

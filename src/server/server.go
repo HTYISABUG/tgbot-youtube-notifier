@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"tgbot"
+	"ytapi"
 )
 
 // Server is a main server which integrated all function in this project.
@@ -14,6 +15,7 @@ type Server struct {
 	hub *hub.Client
 	tg  *tgbot.Server
 	db  *data.Database
+	api *ytapi.YtAPI
 
 	host      string
 	httpPort  int
@@ -24,9 +26,19 @@ type Server struct {
 	subCh    chan tgbot.SubscribeInfo
 }
 
+// Setting represents server settings
+type Setting struct {
+	Host     string `json:"host"`
+	BotToken string `json:"bot_token"`
+	CertFile string `json:"ssl_cert"`
+	KeyFile  string `json:"ssl_key"`
+	DBPath   string `json:"database"`
+	YtAPIKey string `json:"yt_api_key"`
+}
+
 // NewServer returns a pointer to a new `Server` object.
-func NewServer(host string, httpPort, httpsPort int, botToken, dbPath string) (*Server, error) {
-	db, err := data.NewDatabase(dbPath)
+func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
+	db, err := data.NewDatabase(setting.DBPath)
 	if err != nil {
 		return nil, err
 	}
@@ -36,11 +48,12 @@ func NewServer(host string, httpPort, httpsPort int, botToken, dbPath string) (*
 	subCh := make(chan tgbot.SubscribeInfo, 64)
 
 	return &Server{
-		hub: hub.NewClient(fmt.Sprintf("%s:%d", host, httpPort), mux, notifyCh),
-		tg:  tgbot.NewServer(botToken, mux, subCh),
+		hub: hub.NewClient(fmt.Sprintf("%s:%d", setting.Host, httpPort), mux, notifyCh),
+		tg:  tgbot.NewServer(setting.BotToken, mux, subCh),
 		db:  db,
+		api: ytapi.NewYtAPI(setting.YtAPIKey),
 
-		host:      host,
+		host:      setting.Host,
 		httpPort:  httpPort,
 		httpsPort: httpsPort,
 		serveMux:  mux,
@@ -107,37 +120,46 @@ func (s *Server) serviceRelay() {
 
 func (s *Server) subscribeService(info tgbot.SubscribeInfo) {
 	channelID := tgbot.Escape(info.ChannelID)
-	if err := s.subscribe(info); err == nil {
-		// Send success message
-		if err := s.tg.SendMessage(info.ChatID, fmt.Sprintf(
-			"%s %s successful",
-			tgbot.ItalicText(tgbot.BordText("Subscribe")),
-			tgbot.InlineLink(channelID, "https://www.youtube.com/channel/"+channelID),
-		), map[string]interface{}{
-			"disable_web_page_preview": true,
-			"disable_notification":     true,
-		}); err != nil {
-			log.Println(err)
-		}
+	title, err := s.subscribe(info)
+	if title == "" {
+		title = channelID
+	}
+	title = tgbot.Escape(title)
+
+	var msgTemplate string
+	if err == nil {
+		msgTemplate = "%s %s successful."
 	} else {
 		log.Println(err)
+		msgTemplate = "%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later."
+	}
 
-		// Send failed message
-		if err := s.tg.SendMessage(info.ChatID, fmt.Sprintf(
-			"%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later.",
-			tgbot.ItalicText(tgbot.BordText("Subscribe")),
-			tgbot.InlineLink(channelID, "https://www.youtube.com/channel/"+channelID),
-		), map[string]interface{}{
-			"disable_web_page_preview": true,
-			"disable_notification":     true,
-		}); err != nil {
-			log.Println(err)
-		}
+	msgTemplate = tgbot.Escape(msgTemplate)
+
+	// Send message
+	if err := s.tg.SendMessage(info.ChatID, fmt.Sprintf(
+		msgTemplate,
+		tgbot.ItalicText(tgbot.BordText("Subscribe")),
+		tgbot.InlineLink(title, "https://www.youtube.com/channel/"+channelID),
+	), map[string]interface{}{
+		"disable_web_page_preview": true,
+		"disable_notification":     true,
+	}); err != nil {
+		log.Println(err)
 	}
 }
 
-func (s *Server) subscribe(info tgbot.SubscribeInfo) error {
-	s.hub.Subscribe(info.ChannelID)
+func (s *Server) subscribe(subInfo tgbot.SubscribeInfo) (string, error) {
+	s.hub.Subscribe(subInfo.ChannelID)
 
-	return s.db.Subscribe(info)
+	chInfo, err := s.api.GetChannelInfo(subInfo.ChannelID)
+	if err != nil {
+		return "", err
+	}
+
+	if err := s.db.Subscribe(subInfo, *chInfo); err != nil {
+		return chInfo.Title, err
+	}
+
+	return chInfo.Title, nil
 }

@@ -15,14 +15,6 @@ const channelYuuto = "UCSncTY7ruEdF36OoLv-_ZQg"
 var httpPort = flag.Int("http_port", 8080, "The port for redirect server to serve from")
 var httpsPort = flag.Int("https_port", 8443, "The port for main server to serve from")
 
-type setting struct {
-	Host     string `json:"host"`
-	BotToken string `json:"bot_token"`
-	CertFile string `json:"ssl_cert"`
-	KeyFile  string `json:"ssl_key"`
-	DBPath   string `json:"database"`
-}
-
 func main() {
 	flag.Parse()
 
@@ -31,18 +23,12 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	var setting setting
+	var setting server.Setting
 	if err := json.Unmarshal(b, &setting); err != nil {
 		log.Fatalln(err)
 	}
 
-	server, err := server.NewServer(
-		setting.Host,
-		*httpPort,
-		*httpsPort,
-		setting.BotToken,
-		setting.DBPath,
-	)
+	server, err := server.NewServer(setting, *httpPort, *httpsPort)
 
 	if err != nil {
 		log.Fatalln(err)
