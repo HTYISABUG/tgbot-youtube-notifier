@@ -52,7 +52,5 @@ func (client *Client) handler(contentType string, body []byte) {
 		fmt.Println(string(body))
 	}
 
-	// fmt.Printf("%+v\n", feed.Entry)
-
 	client.notifyCh <- feed.Entry
 }

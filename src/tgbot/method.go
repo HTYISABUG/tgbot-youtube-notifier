@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 
 	"github.com/bitly/go-simplejson"
@@ -13,7 +12,7 @@ import (
 const tgAPIURLPrefix = "https://api.telegram.org"
 
 // SendMessage requests to send text message to chatID
-func (server *Server) SendMessage(chatID int64, text string, kwargs map[string]interface{}) {
+func (s *Server) SendMessage(chatID int64, text string, kwargs map[string]interface{}) error {
 	body := simplejson.New()
 	body.Set("chat_id", chatID)
 	body.Set("text", text)
@@ -27,25 +26,24 @@ func (server *Server) SendMessage(chatID int64, text string, kwargs map[string]i
 
 	b, _ := body.MarshalJSON()
 
-	server.apiRequest("sendMessage", b)
+	return s.apiRequest("sendMessage", b)
 }
 
-func (server *Server) apiRequest(method string, body []byte) {
-	url := fmt.Sprintf("%s/bot%s/%s", tgAPIURLPrefix, server.token, method)
+func (s *Server) apiRequest(method string, body []byte) error {
+	url := fmt.Sprintf("%s/bot%s/%s", tgAPIURLPrefix, s.token, method)
 	req, _ := http.NewRequest("POST", url, bytes.NewReader(body))
 	req.Header.Add("Content-Type", "application/json")
 
-	resp, err := server.httpRequester.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
-		log.Printf("Request %s failed, error %v", method, err)
-		return
+		return fmt.Errorf("Request %s failed, error %v", method, err)
 	}
 
 	b, _ := ioutil.ReadAll(resp.Body)
 	res, _ := simplejson.NewJson(b)
 
 	if ok, _ := res.Get("ok").Bool(); !ok {
-		log.Printf(
+		return fmt.Errorf(
 			"Request %s failed, status %d %s",
 			method,
 			res.Get("error_code").MustInt(),
@@ -53,5 +51,5 @@ func (server *Server) apiRequest(method string, body []byte) {
 		)
 	}
 
-	// fmt.Println(string(b)) // DEBUG
+	return nil
 }

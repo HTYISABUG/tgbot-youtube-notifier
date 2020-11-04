@@ -10,10 +10,6 @@ import (
 	"strings"
 )
 
-type httpRequester interface {
-	Do(req *http.Request) (resp *http.Response, err error)
-}
-
 // SubscribeInfo presents who on which chat subscribes which channel
 type SubscribeInfo struct {
 	UserID    int
@@ -23,17 +19,18 @@ type SubscribeInfo struct {
 
 // Server is a Telegram Bot Server that can handle incoming and actively send messages.
 type Server struct {
-	httpRequester httpRequester
-	subCh         chan<- SubscribeInfo
+	client *http.Client
 
 	token string
+
+	subCh chan<- SubscribeInfo
 }
 
 // NewServer returns a pointer to a new `Server` object.
 func NewServer(token string, mux *http.ServeMux, subCh chan<- SubscribeInfo) *Server {
 	server := &Server{
-		httpRequester: &http.Client{},
-		subCh:         subCh,
+		client: &http.Client{},
+		subCh:  subCh,
 
 		token: token,
 	}
@@ -43,43 +40,38 @@ func NewServer(token string, mux *http.ServeMux, subCh chan<- SubscribeInfo) *Se
 	return server
 }
 
-func (server *Server) registerHandler(mux *http.ServeMux) {
-	mux.HandleFunc("/tgbot", server.handler)
+func (s *Server) registerHandler(mux *http.ServeMux) {
+	mux.HandleFunc("/tgbot", s.handler)
 }
 
-func (server *Server) handler(w http.ResponseWriter, r *http.Request) {
-	content, _ := ioutil.ReadAll(r.Body)
-
-	fmt.Println(string(content))
-
+func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 	var update update
-	if err := json.Unmarshal(content, &update); err != nil {
-		log.Println(err)
-		return
-	}
+	content, _ := ioutil.ReadAll(r.Body)
+	json.Unmarshal(content, &update)
 
 	if update.Message != nil && update.Message.Text != nil {
 		elements := strings.Fields(*update.Message.Text)
 		switch elements[0] {
 		case "/subscribe":
-			server.subscribeHandler(&update)
+			s.subscribeHandler(&update)
 		}
 	}
 }
 
-func (server *Server) subscribeHandler(update *update) {
+func (s *Server) subscribeHandler(update *update) {
 	if imNotARobot(update.Message.From) && isPrivate(update.Message.Chat) {
 		elements := strings.Fields(*update.Message.Text)
+
 		var results []string
 		for _, e := range elements[1:] {
-			if b, err := server.isValidYtChannel(e); err == nil && b {
+			if b, err := s.isValidYtChannel(e); err == nil && b {
 				url, _ := url.Parse(e)
 
 				userID := update.Message.From.ID
 				chatID := update.Message.Chat.ID
 				channelID := strings.Split(url.Path, "/")[2]
 
-				server.subCh <- SubscribeInfo{
+				s.subCh <- SubscribeInfo{
 					UserID:    userID,
 					ChatID:    chatID,
 					ChannelID: channelID,
@@ -103,16 +95,16 @@ func (server *Server) subscribeHandler(update *update) {
 			}
 		}
 
-		server.SendMessage(
+		if err := s.SendMessage(
 			update.Message.Chat.ID,
 			strings.Join(results, "\n"),
 			map[string]interface{}{
 				"disable_web_page_preview": true,
 				"disable_notification":     true,
 			},
-		)
-
-		// fmt.Println(strings.Join(results, "\n"))
+		); err != nil {
+			log.Println(err)
+		}
 	}
 }
 
@@ -129,10 +121,10 @@ const (
 	ytHostFull = "www.youtube.com"
 )
 
-func (server *Server) isValidYtChannel(rawurl string) (bool, error) {
+func (s *Server) isValidYtChannel(rawurl string) (bool, error) {
 	url, err := url.Parse(rawurl)
 	if err != nil {
-		return false, err
+		return false, nil
 	}
 
 	if url.Scheme == "" {
@@ -143,8 +135,8 @@ func (server *Server) isValidYtChannel(rawurl string) (bool, error) {
 	if url.Scheme == "http" || url.Scheme == "https" &&
 		(url.Host == ytHost || url.Host == ytHostFull) &&
 		strings.HasPrefix(url.Path, "/channel") {
-		req, _ := http.NewRequest("GET", url.String(), nil)
-		resp, err := server.httpRequester.Do(req)
+		resp, err := s.client.Get(url.String())
+
 		if err != nil {
 			return false, err
 		} else if resp.StatusCode == http.StatusOK {

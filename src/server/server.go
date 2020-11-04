@@ -80,28 +80,11 @@ func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 	log.Fatalln(http.ListenAndServeTLS(fmt.Sprintf(":%d", s.httpsPort), certFile, keyFile, s.serveMux))
 }
 
-func (s *Server) subscribe(info tgbot.SubscribeInfo) error {
-	s.hub.Subscribe(info.ChannelID)
-
-	if err := s.db.Subscribe(info); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *Server) Unsubscribe(channelID string) {
-	s.hub.Unsubscribe(channelID)
-}
-
 func (s *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
 	addr := fmt.Sprintf("%s:%d", s.host, s.httpsPort)
 	url := "https://" + addr + r.RequestURI
-	// log.Printf("Redirect http://%v to https://%s", r.Host, addr)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
-
-const testChatID = 283803902
 
 func (s *Server) serviceRelay() {
 	for {
@@ -117,27 +100,44 @@ func (s *Server) serviceRelay() {
 				go s.tg.SendMessage(id, entry2text(e), nil)
 			}
 		case info := <-s.subCh:
-			if err, channelID := s.subscribe(info), tgbot.Escape(info.ChannelID); err == nil {
-				// Send success message
-				go s.tg.SendMessage(info.ChatID, fmt.Sprintf(
-					"%s %s successful",
-					tgbot.ItalicText(tgbot.BordText("Subscribe")),
-					tgbot.InlineLink(channelID, "https://www.youtube.com/channel/"+channelID),
-				), map[string]interface{}{
-					"disable_web_page_preview": true,
-					"disable_notification":     true,
-				})
-			} else {
-				// Send failed message
-				go s.tg.SendMessage(info.ChatID, fmt.Sprintf(
-					"%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later.",
-					tgbot.ItalicText(tgbot.BordText("Subscribe")),
-					tgbot.InlineLink(channelID, "https://www.youtube.com/channel/"+channelID),
-				), map[string]interface{}{
-					"disable_web_page_preview": true,
-					"disable_notification":     true,
-				})
-			}
+			go s.subscribeService(info)
 		}
 	}
+}
+
+func (s *Server) subscribeService(info tgbot.SubscribeInfo) {
+	channelID := tgbot.Escape(info.ChannelID)
+	if err := s.subscribe(info); err == nil {
+		// Send success message
+		if err := s.tg.SendMessage(info.ChatID, fmt.Sprintf(
+			"%s %s successful",
+			tgbot.ItalicText(tgbot.BordText("Subscribe")),
+			tgbot.InlineLink(channelID, "https://www.youtube.com/channel/"+channelID),
+		), map[string]interface{}{
+			"disable_web_page_preview": true,
+			"disable_notification":     true,
+		}); err != nil {
+			log.Println(err)
+		}
+	} else {
+		log.Println(err)
+
+		// Send failed message
+		if err := s.tg.SendMessage(info.ChatID, fmt.Sprintf(
+			"%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later.",
+			tgbot.ItalicText(tgbot.BordText("Subscribe")),
+			tgbot.InlineLink(channelID, "https://www.youtube.com/channel/"+channelID),
+		), map[string]interface{}{
+			"disable_web_page_preview": true,
+			"disable_notification":     true,
+		}); err != nil {
+			log.Println(err)
+		}
+	}
+}
+
+func (s *Server) subscribe(info tgbot.SubscribeInfo) error {
+	s.hub.Subscribe(info.ChannelID)
+
+	return s.db.Subscribe(info)
 }

@@ -39,32 +39,17 @@ func NewDatabase(dataSourceName string) (*Database, error) {
 
 // Subscribe registers info into corresponding table
 func (db *Database) Subscribe(info tgbot.SubscribeInfo) error {
-	stmt, err := db.Prepare("INSERT OR IGNORE INTO channels (id) VALUES (?);")
+	_, err := db.Exec("INSERT OR IGNORE INTO channels (id) VALUES (?);", info.ChannelID)
 	if err != nil {
 		return err
 	}
 
-	_, err = stmt.Exec(info.ChannelID)
+	_, err = db.Exec("INSERT OR IGNORE INTO users (id, chat_id) VALUES (?, ?);", info.UserID, info.ChatID)
 	if err != nil {
 		return err
 	}
 
-	stmt, err = db.Prepare("INSERT OR IGNORE INTO users (id, chat_id) VALUES (?, ?);")
-	if err != nil {
-		return err
-	}
-
-	_, err = stmt.Exec(info.UserID, info.ChatID)
-	if err != nil {
-		return err
-	}
-
-	stmt, err = db.Prepare("INSERT OR IGNORE INTO subscribers (user_id, channel_id) VALUES (?, ?);")
-	if err != nil {
-		return err
-	}
-
-	_, err = stmt.Exec(info.UserID, info.ChannelID)
+	_, err = db.Exec("INSERT OR IGNORE INTO subscribers (user_id, channel_id) VALUES (?, ?);", info.UserID, info.ChannelID)
 	if err != nil {
 		return err
 	}
@@ -74,15 +59,12 @@ func (db *Database) Subscribe(info tgbot.SubscribeInfo) error {
 
 // GetSubsciberChats returns all user chat_id that subscribes the channel
 func (db *Database) GetSubsciberChats(channelID string) ([]int64, error) {
-	stmt, err := db.Prepare("SELECT chat_id FROM users INNER JOIN subscribers ON users.id == subscribers.user_id WHERE subscribers.channel_id = ?")
+	rows, err := db.Query("SELECT chat_id FROM users INNER JOIN subscribers ON users.id == subscribers.user_id WHERE subscribers.channel_id = ?;", channelID)
 	if err != nil {
 		return nil, err
 	}
 
-	rows, err := stmt.Query(channelID)
-	if err != nil {
-		return nil, err
-	}
+	defer rows.Close()
 
 	var id int64
 	var chatIDs []int64
@@ -95,6 +77,10 @@ func (db *Database) GetSubsciberChats(channelID string) ([]int64, error) {
 		chatIDs = append(chatIDs, id)
 	}
 
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+
 	return chatIDs, nil
 }
 
@@ -105,6 +91,8 @@ func (db *Database) GetSubscibedChannels() ([]string, error) {
 		return nil, err
 	}
 
+	defer rows.Close()
+
 	var id string
 	var channels []string
 	for rows.Next() {
@@ -114,6 +102,10 @@ func (db *Database) GetSubscibedChannels() ([]string, error) {
 		}
 
 		channels = append(channels, id)
+	}
+
+	if rows.Err() != nil {
+		return nil, rows.Err()
 	}
 
 	return channels, nil
