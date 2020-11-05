@@ -1,6 +1,7 @@
 package ytapi
 
 import (
+	"info"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -22,7 +23,7 @@ func NewYtAPI(key string) *YtAPI {
 	return &YtAPI{&http.Client{}, key}
 }
 
-func (api *YtAPI) GetChannelInfo(channelID string) (*ChannelInfo, error) {
+func (api *YtAPI) GetChannelInfo(channelID string) (*info.ChannelInfo, error) {
 	url, _ := url.Parse(ytAPIChannelURL)
 	q := url.Query()
 	q.Set("key", api.key)
@@ -38,7 +39,7 @@ func (api *YtAPI) GetChannelInfo(channelID string) (*ChannelInfo, error) {
 	b, _ := ioutil.ReadAll(resp.Body)
 	body, _ := simplejson.NewJson(b)
 
-	var info ChannelInfo
+	var info info.ChannelInfo
 	info.ID = body.Get("items").GetIndex(0).Get("id").MustString()
 	info.Title = body.Get("items").GetIndex(0).Get("snippet").Get("title").MustString()
 

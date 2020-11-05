@@ -4,6 +4,7 @@ import (
 	"data"
 	"fmt"
 	"hub"
+	"info"
 	"log"
 	"net/http"
 	"tgbot"
@@ -23,7 +24,7 @@ type Server struct {
 	serveMux  *http.ServeMux
 
 	notifyCh chan hub.Entry
-	subCh    chan tgbot.SubscribeInfo
+	subCh    chan info.SubscribeInfo
 }
 
 // Setting represents server settings
@@ -45,7 +46,7 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 
 	mux := new(http.ServeMux)
 	notifyCh := make(chan hub.Entry, 64)
-	subCh := make(chan tgbot.SubscribeInfo, 64)
+	subCh := make(chan info.SubscribeInfo, 64)
 
 	return &Server{
 		hub: hub.NewClient(fmt.Sprintf("%s:%d", setting.Host, httpPort), mux, notifyCh),
@@ -133,7 +134,7 @@ func (s *Server) serviceRelay() {
 	}
 }
 
-func (s *Server) subscribeService(info tgbot.SubscribeInfo) {
+func (s *Server) subscribeService(info info.SubscribeInfo) {
 	channelID := tgbot.Escape(info.ChannelID)
 	title, err := s.subscribe(info)
 	if title == "" {
@@ -164,7 +165,7 @@ func (s *Server) subscribeService(info tgbot.SubscribeInfo) {
 	}
 }
 
-func (s *Server) subscribe(subInfo tgbot.SubscribeInfo) (string, error) {
+func (s *Server) subscribe(subInfo info.SubscribeInfo) (string, error) {
 	s.hub.Subscribe(subInfo.ChannelID)
 
 	chInfo, err := s.api.GetChannelInfo(subInfo.ChannelID)

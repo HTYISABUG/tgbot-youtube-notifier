@@ -2,8 +2,7 @@ package data
 
 import (
 	"database/sql"
-	"tgbot"
-	"ytapi"
+	"info"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 driver
 )
@@ -42,7 +41,7 @@ func NewDatabase(dataSourceName string) (*Database, error) {
 }
 
 // Subscribe registers info into corresponding table
-func (db *Database) Subscribe(subInfo tgbot.SubscribeInfo, chInfo ytapi.ChannelInfo) error {
+func (db *Database) Subscribe(subInfo info.SubscribeInfo, chInfo info.ChannelInfo) error {
 	_, err := db.Exec("INSERT OR IGNORE INTO channels (id, title) VALUES (?, ?);", subInfo.ChannelID, chInfo.Title)
 	if err != nil {
 		return err

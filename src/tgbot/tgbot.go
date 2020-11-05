@@ -3,6 +3,7 @@ package tgbot
 import (
 	"encoding/json"
 	"fmt"
+	"info"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -10,24 +11,17 @@ import (
 	"strings"
 )
 
-// SubscribeInfo presents who on which chat subscribes which channel
-type SubscribeInfo struct {
-	UserID    int
-	ChatID    int64
-	ChannelID string
-}
-
 // Server is a Telegram Bot Server that can handle incoming and actively send messages.
 type Server struct {
 	client *http.Client
 
 	token string
 
-	subCh chan<- SubscribeInfo
+	subCh chan<- info.SubscribeInfo
 }
 
 // NewServer returns a pointer to a new `Server` object.
-func NewServer(token string, mux *http.ServeMux, subCh chan<- SubscribeInfo) *Server {
+func NewServer(token string, mux *http.ServeMux, subCh chan<- info.SubscribeInfo) *Server {
 	server := &Server{
 		client: &http.Client{},
 		subCh:  subCh,
@@ -71,7 +65,7 @@ func (s *Server) subscribeHandler(update *update) {
 				chatID := update.Message.Chat.ID
 				channelID := strings.Split(url.Path, "/")[2]
 
-				s.subCh <- SubscribeInfo{
+				s.subCh <- info.SubscribeInfo{
 					UserID:    userID,
 					ChatID:    chatID,
 					ChannelID: channelID,
