@@ -2,6 +2,7 @@ package tgbot
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -12,7 +13,7 @@ import (
 const tgAPIURLPrefix = "https://api.telegram.org"
 
 // SendMessage requests to send text message to chatID
-func (s *Server) SendMessage(chatID int64, text string, kwargs map[string]interface{}) error {
+func (s *Server) SendMessage(chatID int64, text string, kwargs map[string]interface{}) (*Message, error) {
 	body := simplejson.New()
 	body.Set("chat_id", chatID)
 	body.Set("text", text)
@@ -29,21 +30,21 @@ func (s *Server) SendMessage(chatID int64, text string, kwargs map[string]interf
 	return s.apiRequest("sendMessage", b)
 }
 
-func (s *Server) apiRequest(method string, body []byte) error {
+func (s *Server) apiRequest(method string, body []byte) (*Message, error) {
 	url := fmt.Sprintf("%s/bot%s/%s", tgAPIURLPrefix, s.token, method)
 	req, _ := http.NewRequest("POST", url, bytes.NewReader(body))
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("Request %s failed, error %v", method, err)
+		return nil, fmt.Errorf("Request %s failed, error %v", method, err)
 	}
 
 	b, _ := ioutil.ReadAll(resp.Body)
 	res, _ := simplejson.NewJson(b)
 
 	if ok, _ := res.Get("ok").Bool(); !ok {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"Request %s failed, status %d %s",
 			method,
 			res.Get("error_code").MustInt(),
@@ -51,5 +52,9 @@ func (s *Server) apiRequest(method string, body []byte) error {
 		)
 	}
 
-	return nil
+	var message Message
+	b, _ = res.Get("result").MarshalJSON()
+	json.Unmarshal(b, &message)
+
+	return &message, nil
 }

@@ -2,10 +2,11 @@ package tgbot
 
 type update struct {
 	ID      int      `json:"update_id"`
-	Message *message `json:"message"`
+	Message *Message `json:"message"`
 }
 
-type message struct {
+// Message represents the properties of message
+type Message struct {
 	ID       int             `json:"messade_id"`
 	Date     int             `json:"date"`
 	From     *user           `json:"from"`

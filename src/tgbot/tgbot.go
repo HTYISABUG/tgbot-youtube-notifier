@@ -95,7 +95,7 @@ func (s *Server) subscribeHandler(update *update) {
 			}
 		}
 
-		if err := s.SendMessage(
+		if _, err := s.SendMessage(
 			update.Message.Chat.ID,
 			strings.Join(results, "\n"),
 			map[string]interface{}{

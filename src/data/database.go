@@ -20,16 +20,19 @@ func NewDatabase(dataSourceName string) (*Database, error) {
 		return nil, err
 	}
 
+	// Create table to save subscribed channel data
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS channels (id TEXT PRIMARY KEY, title TEXT);")
 	if err != nil {
 		return nil, err
 	}
 
+	// Create table to save subscribing user data
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, chat_id INTEGER);")
 	if err != nil {
 		return nil, err
 	}
 
+	// Create table to save subscribers data
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS subscribers (user_id INTEGER, channel_id TEXT, PRIMARY KEY (user_id, channel_id));")
 	if err != nil {
 		return nil, err

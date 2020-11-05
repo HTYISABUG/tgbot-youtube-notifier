@@ -117,7 +117,6 @@ func (s *Server) serviceRelay() {
 		case info := <-s.subCh:
 			go s.subscribeService(info)
 		case entry := <-s.notifyCh:
-			// fmt.Printf("%+v\n", e) // DEBUG
 			chatIDs, err := s.db.GetSubsciberChats(entry.ChannelID)
 			if err != nil {
 				log.Println(err)
@@ -125,7 +124,7 @@ func (s *Server) serviceRelay() {
 
 			for _, id := range chatIDs {
 				go func(chatID int64, entry hub.Entry) {
-					if err := s.tg.SendMessage(chatID, entry2text(entry), nil); err != nil {
+					if _, err := s.tg.SendMessage(chatID, entry2text(entry), nil); err != nil {
 						log.Println(err)
 					}
 				}(id, entry)
@@ -153,7 +152,7 @@ func (s *Server) subscribeService(info tgbot.SubscribeInfo) {
 	msgTemplate = tgbot.Escape(msgTemplate)
 
 	// Send message
-	if err := s.tg.SendMessage(info.ChatID, fmt.Sprintf(
+	if _, err := s.tg.SendMessage(info.ChatID, fmt.Sprintf(
 		msgTemplate,
 		tgbot.ItalicText(tgbot.BordText("Subscribe")),
 		tgbot.InlineLink(title, "https://www.youtube.com/channel/"+channelID),
