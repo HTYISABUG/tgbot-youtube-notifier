@@ -99,21 +99,37 @@ func (s *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
+// Close stops the main server and run clean up procedures
+func (s *Server) Close() {
+	channels, err := s.db.GetSubscibedChannels()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	for _, cid := range channels {
+		s.hub.Unsubscribe(cid)
+	}
+}
+
 func (s *Server) serviceRelay() {
 	for {
 		select {
-		case e := <-s.notifyCh:
+		case info := <-s.subCh:
+			go s.subscribeService(info)
+		case entry := <-s.notifyCh:
 			// fmt.Printf("%+v\n", e) // DEBUG
-			chatIDs, err := s.db.GetSubsciberChats(e.ChannelID)
+			chatIDs, err := s.db.GetSubsciberChats(entry.ChannelID)
 			if err != nil {
 				log.Println(err)
 			}
 
 			for _, id := range chatIDs {
-				go s.tg.SendMessage(id, entry2text(e), nil)
+				go func(chatID int64, entry hub.Entry) {
+					if err := s.tg.SendMessage(chatID, entry2text(entry), nil); err != nil {
+						log.Println(err)
+					}
+				}(id, entry)
 			}
-		case info := <-s.subCh:
-			go s.subscribeService(info)
 		}
 	}
 }

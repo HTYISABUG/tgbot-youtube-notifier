@@ -3,9 +3,10 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
+	"os/signal"
 	"server"
 	"time"
 )
@@ -34,17 +35,23 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	// Handle SIGINT to cleanup program
+	signalCh := make(chan os.Signal)
+	signal.Notify(signalCh, os.Interrupt)
+	go func() {
+		<-signalCh
+		log.Println("Graceful shutdown server...")
+		server.Close()
+
+		time.Sleep(time.Second * 5)
+
+		log.Println("Goodbye.")
+		os.Exit(0)
+	}()
+
 	// Start webserver
-	go server.ListenAndServeTLS(
+	server.ListenAndServeTLS(
 		setting.CertFile,
 		setting.KeyFile,
 	)
-
-	time.Sleep(time.Second * 5)
-	log.Println("Press Enter for graceful shutdown...")
-
-	var input string
-	fmt.Scanln(&input)
-
-	time.Sleep(time.Second * 5)
 }
