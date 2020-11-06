@@ -7,8 +7,8 @@ type update struct {
 
 // Message represents the properties of message
 type Message struct {
-	ID       int             `json:"messade_id"`
-	Date     int             `json:"date"`
+	ID       int64           `json:"message_id"`
+	Date     int64           `json:"date"`
 	From     *user           `json:"from"`
 	Chat     *chat           `json:"chat"`
 	Text     *string         `json:"text"`

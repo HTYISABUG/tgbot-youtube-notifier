@@ -7,6 +7,7 @@ import (
 	"info"
 	"log"
 	"net/http"
+	"strings"
 	"tgbot"
 	"ytapi"
 )
@@ -118,18 +119,7 @@ func (s *Server) serviceRelay() {
 		case info := <-s.subCh:
 			go s.subscribeService(info)
 		case entry := <-s.notifyCh:
-			chatIDs, err := s.db.GetSubsciberChats(entry.ChannelID)
-			if err != nil {
-				log.Println(err)
-			}
-
-			for _, id := range chatIDs {
-				go func(chatID int64, entry hub.Entry) {
-					if _, err := s.tg.SendMessage(chatID, entry2text(entry), nil); err != nil {
-						log.Println(err)
-					}
-				}(id, entry)
-			}
+			go s.notifyHandler(entry)
 		}
 	}
 }
@@ -178,4 +168,48 @@ func (s *Server) subscribe(subInfo info.SubscribeInfo) (string, error) {
 	}
 
 	return chInfo.Title, nil
+}
+
+func (s *Server) notifyHandler(entry hub.Entry) {
+	chatIDs, err := s.db.GetSubsciberChats(entry.ChannelID)
+	if err != nil {
+		log.Println(err)
+	}
+
+	for _, id := range chatIDs {
+		if err := s.db.Notify(info.NotifyInfo{
+			VideoID:   entry.VideoID,
+			ChatID:    id,
+			MessageID: -1,
+		}, "IGNORE"); err != nil {
+			log.Println(err)
+		}
+	}
+
+	infos, err := s.db.GetVideoNotifyInfos(entry.VideoID)
+	if err != nil {
+		log.Println(err)
+	} else {
+		for _, i := range infos {
+			if i.MessageID == -1 {
+				message, err := s.tg.SendMessage(i.ChatID, entry2text(entry), nil)
+				if err != nil {
+					log.Println(err)
+				} else {
+					i.MessageID = message.ID
+					if err := s.db.Notify(i, "REPLACE"); err != nil {
+						log.Println(err)
+					}
+				}
+			} else {
+				const notModified = "Request editMessageText failed, status 400 Bad Request: message is not modified"
+
+				if _, err := s.tg.EditMessageText(
+					i.ChatID, i.MessageID, entry2text(entry), nil,
+				); err != nil && !strings.HasPrefix(err.Error(), notModified) {
+					log.Println(err)
+				}
+			}
+		}
+	}
 }

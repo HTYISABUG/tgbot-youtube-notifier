@@ -30,6 +30,24 @@ func (s *Server) SendMessage(chatID int64, text string, kwargs map[string]interf
 	return s.apiRequest("sendMessage", b)
 }
 
+func (s *Server) EditMessageText(chatID int64, messageID int64, text string, kwargs map[string]interface{}) (*Message, error) {
+	body := simplejson.New()
+	body.Set("chat_id", chatID)
+	body.Set("message_id", messageID)
+	body.Set("text", text)
+	body.Set("parse_mode", "MarkdownV2")
+
+	if kwargs != nil {
+		for k, v := range kwargs {
+			body.Set(k, v)
+		}
+	}
+
+	b, _ := body.MarshalJSON()
+
+	return s.apiRequest("editMessageText", b)
+}
+
 func (s *Server) apiRequest(method string, body []byte) (*Message, error) {
 	url := fmt.Sprintf("%s/bot%s/%s", tgAPIURLPrefix, s.token, method)
 	req, _ := http.NewRequest("POST", url, bytes.NewReader(body))

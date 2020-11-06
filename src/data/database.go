@@ -32,7 +32,14 @@ func NewDatabase(dataSourceName string) (*Database, error) {
 	}
 
 	// Create table to save subscribers data
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS subscribers (user_id INTEGER, channel_id TEXT, PRIMARY KEY (user_id, channel_id));")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS subscribers (" +
+		"user_id INTEGER, channel_id TEXT, PRIMARY KEY (user_id, channel_id));")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS notifications (" +
+		"video_id TEXT, chat_id INTEGER, message_id INTEGER, PRIMARY KEY (video_id, chat_id));")
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +112,49 @@ func (db *Database) GetSubscibedChannels() ([]string, error) {
 		}
 
 		channels = append(channels, id)
+	}
+
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+
+	return channels, nil
+}
+
+func (db *Database) Notify(info info.NotifyInfo, method string) error {
+	_, err := db.Exec(
+		"INSERT OR "+method+" INTO notifications (video_id, chat_id, message_id) VALUES (?, ?, ?);",
+		info.VideoID, info.ChatID, info.MessageID,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (db *Database) GetVideoNotifyInfos(videoID string) ([]info.NotifyInfo, error) {
+	rows, err := db.Query(
+		"SELECT video_id, chat_id, message_id FROM notifications WHERE video_id = ?;",
+		videoID,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var nInfo info.NotifyInfo
+	var channels []info.NotifyInfo
+	for rows.Next() {
+		err := rows.Scan(&nInfo.VideoID, &nInfo.ChatID, &nInfo.MessageID)
+		if err != nil {
+			return nil, err
+		}
+
+		channels = append(channels, nInfo)
 	}
 
 	if rows.Err() != nil {

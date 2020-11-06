@@ -11,3 +11,10 @@ type ChannelInfo struct {
 	ID    string `json:"id"`
 	Title string `json:"snippet>title"`
 }
+
+type NotifyInfo struct {
+	VideoID   string
+	ChatID    int64
+	MessageID int64
+	Message   string
+}
