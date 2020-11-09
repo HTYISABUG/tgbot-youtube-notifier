@@ -24,8 +24,8 @@ type Server struct {
 	httpsPort int
 	serveMux  *http.ServeMux
 
-	notifyCh chan hub.Entry
-	subCh    chan info.SubscribeInfo
+	subCh    <-chan info.SubscribeInfo
+	notifyCh <-chan hub.Entry
 }
 
 // Setting represents server settings
@@ -46,12 +46,12 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 	}
 
 	mux := new(http.ServeMux)
-	notifyCh := make(chan hub.Entry, 64)
-	subCh := make(chan info.SubscribeInfo, 64)
+	tg, subCh := tgbot.NewServer(setting.BotToken, mux)
+	hub, notifyCh := hub.NewClient(fmt.Sprintf("%s:%d", setting.Host, httpPort), mux)
 
 	return &Server{
-		hub: hub.NewClient(fmt.Sprintf("%s:%d", setting.Host, httpPort), mux, notifyCh),
-		tg:  tgbot.NewServer(setting.BotToken, mux, subCh),
+		hub: hub,
+		tg:  tg,
 		db:  db,
 		api: ytapi.NewYtAPI(setting.YtAPIKey),
 
@@ -60,8 +60,8 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 		httpsPort: httpsPort,
 		serveMux:  mux,
 
-		notifyCh: notifyCh,
 		subCh:    subCh,
+		notifyCh: notifyCh,
 	}, nil
 }
 

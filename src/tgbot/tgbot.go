@@ -21,7 +21,8 @@ type Server struct {
 }
 
 // NewServer returns a pointer to a new `Server` object.
-func NewServer(token string, mux *http.ServeMux, subCh chan<- info.SubscribeInfo) *Server {
+func NewServer(token string, mux *http.ServeMux) (*Server, <-chan info.SubscribeInfo) {
+	subCh := make(chan info.SubscribeInfo, 64)
 	server := &Server{
 		client: &http.Client{},
 		subCh:  subCh,
@@ -31,7 +32,7 @@ func NewServer(token string, mux *http.ServeMux, subCh chan<- info.SubscribeInfo
 
 	server.registerHandler(mux)
 
-	return server
+	return server, subCh
 }
 
 func (s *Server) registerHandler(mux *http.ServeMux) {

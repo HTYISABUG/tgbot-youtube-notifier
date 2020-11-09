@@ -19,8 +19,9 @@ type Client struct {
 }
 
 // NewClient returns a pointer to a new `Client` object.
-func NewClient(addr string, mux *http.ServeMux, notifyCh chan<- Entry) *Client {
+func NewClient(addr string, mux *http.ServeMux) (*Client, <-chan Entry) {
 	client := gohubbub.NewClient(addr, "Hub Client")
+	notifyCh := make(chan Entry, 64)
 
 	client.RegisterHandler(mux)
 
@@ -28,7 +29,7 @@ func NewClient(addr string, mux *http.ServeMux, notifyCh chan<- Entry) *Client {
 		Client: client,
 
 		notifyCh: notifyCh,
-	}
+	}, notifyCh
 }
 
 // Subscribe adds a handler will be called when an update notification is received.
