@@ -2,7 +2,7 @@ package info
 
 // SubscribeInfo presents who on which chat subscribes which channel
 type SubscribeInfo struct {
-	UserID    int
+	UserID    int64
 	ChatID    int64
 	ChannelID string
 }
@@ -17,4 +17,11 @@ type NotifyInfo struct {
 	ChatID    int64
 	MessageID int64
 	Message   string
+}
+
+type ListInfo struct {
+	UserID        int64
+	ChatID        int64
+	ChannelIDs    []string
+	ChannelTitles []string
 }

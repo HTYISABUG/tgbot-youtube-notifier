@@ -17,22 +17,37 @@ type Server struct {
 
 	token string
 
-	subCh chan<- info.SubscribeInfo
+	infoCh chan<- TgInfo
 }
 
+// TgInfo transmits info type and data to main server
+type TgInfo struct {
+	Type int
+
+	SubscribeInfo *info.SubscribeInfo
+	ListInfo      *info.ListInfo
+}
+
+const (
+	// Subscribe is a TgInfoType
+	TypeSubscribe = iota
+	// List is a TgInfoType
+	TypeList
+)
+
 // NewServer returns a pointer to a new `Server` object.
-func NewServer(token string, mux *http.ServeMux) (*Server, <-chan info.SubscribeInfo) {
-	subCh := make(chan info.SubscribeInfo, 64)
+func NewServer(token string, mux *http.ServeMux) (*Server, <-chan TgInfo) {
+	infoCh := make(chan TgInfo, 64)
 	server := &Server{
 		client: &http.Client{},
-		subCh:  subCh,
+		infoCh: infoCh,
 
 		token: token,
 	}
 
 	server.registerHandler(mux)
 
-	return server, subCh
+	return server, infoCh
 }
 
 func (s *Server) registerHandler(mux *http.ServeMux) {
@@ -49,6 +64,8 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 		switch elements[0] {
 		case "/subscribe":
 			s.subscribeHandler(&update)
+		case "/list":
+			s.listHandler(&update)
 		}
 	}
 }
@@ -66,10 +83,13 @@ func (s *Server) subscribeHandler(update *update) {
 				chatID := update.Message.Chat.ID
 				channelID := strings.Split(url.Path, "/")[2]
 
-				s.subCh <- info.SubscribeInfo{
-					UserID:    userID,
-					ChatID:    chatID,
-					ChannelID: channelID,
+				s.infoCh <- TgInfo{
+					Type: TypeSubscribe,
+					SubscribeInfo: &info.SubscribeInfo{
+						UserID:    userID,
+						ChatID:    chatID,
+						ChannelID: channelID,
+					},
 				}
 
 				channelID, e = Escape(channelID), Escape(e)
@@ -140,4 +160,12 @@ func (s *Server) isValidYtChannel(rawurl string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func (s *Server) listHandler(update *update) {
+	userID := update.Message.From.ID
+	s.infoCh <- TgInfo{
+		Type:     TypeList,
+		ListInfo: &info.ListInfo{UserID: userID},
+	}
 }

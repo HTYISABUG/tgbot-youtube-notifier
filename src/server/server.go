@@ -24,7 +24,7 @@ type Server struct {
 	httpsPort int
 	serveMux  *http.ServeMux
 
-	subCh    <-chan info.SubscribeInfo
+	tgInfoCh <-chan tgbot.TgInfo
 	notifyCh <-chan hub.Entry
 }
 
@@ -46,7 +46,7 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 	}
 
 	mux := new(http.ServeMux)
-	tg, subCh := tgbot.NewServer(setting.BotToken, mux)
+	tg, tgInfoCh := tgbot.NewServer(setting.BotToken, mux)
 	hub, notifyCh := hub.NewClient(fmt.Sprintf("%s:%d", setting.Host, httpPort), mux)
 
 	return &Server{
@@ -60,7 +60,7 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 		httpsPort: httpsPort,
 		serveMux:  mux,
 
-		subCh:    subCh,
+		tgInfoCh: tgInfoCh,
 		notifyCh: notifyCh,
 	}, nil
 }
@@ -68,7 +68,7 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 // ListenAndServeTLS starts a HTTPS server using server ServeMux
 func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 	// Recover all subscribed channels
-	channels, err := s.db.GetSubscibedChannels()
+	channels, err := s.db.GetAllSubscibedChannelIDs()
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -103,7 +103,7 @@ func (s *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
 
 // Close stops the main server and run clean up procedures
 func (s *Server) Close() {
-	channels, err := s.db.GetSubscibedChannels()
+	channels, err := s.db.GetAllSubscibedChannelIDs()
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -116,8 +116,35 @@ func (s *Server) Close() {
 func (s *Server) serviceRelay() {
 	for {
 		select {
-		case info := <-s.subCh:
-			go s.subscribeService(info)
+		case info := <-s.tgInfoCh:
+			switch info.Type {
+			case tgbot.TypeSubscribe:
+				go s.subscribeService(*info.SubscribeInfo)
+			case tgbot.TypeList:
+				go func() {
+					err := s.db.GetListInfosByUserID(info.ListInfo)
+					if err != nil {
+						log.Println(err)
+					} else {
+						list := []string{"You already subscribed following channels:"}
+
+						for i := 0; i < len(info.ListInfo.ChannelIDs); i++ {
+							chID := tgbot.Escape(info.ListInfo.ChannelIDs[i])
+							chTitle := tgbot.Escape(info.ListInfo.ChannelTitles[i])
+							list = append(list, tgbot.InlineLink(chTitle, "https://www.youtube.com/channel/"+chID))
+						}
+
+						if _, err := s.tg.SendMessage(
+							info.ListInfo.ChatID,
+							strings.Join(list, "\n"),
+							map[string]interface{}{
+								"disable_web_page_preview": true,
+							}); err != nil {
+							log.Println(err)
+						}
+					}
+				}()
+			}
 		case entry := <-s.notifyCh:
 			go s.notifyHandler(entry)
 		}
@@ -171,7 +198,7 @@ func (s *Server) subscribe(subInfo info.SubscribeInfo) (string, error) {
 }
 
 func (s *Server) notifyHandler(entry hub.Entry) {
-	chatIDs, err := s.db.GetSubsciberChats(entry.ChannelID)
+	chatIDs, err := s.db.GetSubsciberChatIDsByChannelID(entry.ChannelID)
 	if err != nil {
 		log.Println(err)
 	}
@@ -186,7 +213,7 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 		}
 	}
 
-	infos, err := s.db.GetVideoNotifyInfos(entry.VideoID)
+	infos, err := s.db.GetNotifyInfosByVideoID(entry.VideoID)
 	if err != nil {
 		log.Println(err)
 	} else {

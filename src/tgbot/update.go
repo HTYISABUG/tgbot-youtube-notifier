@@ -16,7 +16,7 @@ type Message struct {
 }
 
 type user struct {
-	ID    int   `json:"id"`
+	ID    int64 `json:"id"`
 	IsBot *bool `json:"is_bot"`
 }
 

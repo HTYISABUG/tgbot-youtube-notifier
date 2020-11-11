@@ -67,8 +67,8 @@ func (db *Database) Subscribe(subInfo info.SubscribeInfo, chInfo info.ChannelInf
 	return nil
 }
 
-// GetSubsciberChats returns all user chat_id that subscribes the channel
-func (db *Database) GetSubsciberChats(channelID string) ([]int64, error) {
+// GetSubsciberChatIDsByChannelID returns all users' chat id that subscribes the channel
+func (db *Database) GetSubsciberChatIDsByChannelID(channelID string) ([]int64, error) {
 	rows, err := db.Query("SELECT chat_id FROM users INNER JOIN subscribers ON users.id == subscribers.user_id WHERE subscribers.channel_id = ?;", channelID)
 	if err != nil {
 		return nil, err
@@ -94,9 +94,12 @@ func (db *Database) GetSubsciberChats(channelID string) ([]int64, error) {
 	return chatIDs, nil
 }
 
-// GetSubscibedChannels returns all subscribed channels
-func (db *Database) GetSubscibedChannels() ([]string, error) {
-	rows, err := db.Query("SELECT id FROM channels;")
+// GetAllSubscibedChannelIDs returns all subscibed channels' id
+func (db *Database) GetAllSubscibedChannelIDs() ([]string, error) {
+	var rows *sql.Rows
+	var err error
+
+	rows, err = db.Query("SELECT id FROM channels;")
 	if err != nil {
 		return nil, err
 	}
@@ -104,21 +107,60 @@ func (db *Database) GetSubscibedChannels() ([]string, error) {
 	defer rows.Close()
 
 	var id string
-	var channels []string
+	var chIDs []string
 	for rows.Next() {
 		err := rows.Scan(&id)
 		if err != nil {
 			return nil, err
 		}
 
-		channels = append(channels, id)
+		chIDs = append(chIDs, id)
 	}
 
 	if rows.Err() != nil {
 		return nil, rows.Err()
 	}
 
-	return channels, nil
+	return chIDs, nil
+}
+
+// GetListInfosByUserID updates list infos by user id
+func (db *Database) GetListInfosByUserID(info *info.ListInfo) error {
+	var rows *sql.Rows
+	var err error
+
+	// rows, err = db.Query("SELECT title FROM subscribers INNER JOIN channels ON subscribers.channel_id = channels.id WHERE user_id = ?;", userID)
+	rows, err = db.Query(
+		"SELECT users.chat_id, channels.id, channels.title FROM "+
+			"channels INNER JOIN (users INNER JOIN subscribers ON users.id = subscribers.user_id) "+
+			"ON subscribers.channel_id = channels.id "+
+			"WHERE subscribers.user_id = ?;",
+		info.UserID,
+	)
+	if err != nil {
+		return err
+	}
+
+	defer rows.Close()
+
+	var chatID int64
+	var chID, chTitle string
+	for rows.Next() {
+		err := rows.Scan(&chatID, &chID, &chTitle)
+		if err != nil {
+			return err
+		}
+
+		info.ChatID = chatID
+		info.ChannelIDs = append(info.ChannelIDs, chID)
+		info.ChannelTitles = append(info.ChannelTitles, chTitle)
+	}
+
+	if rows.Err() != nil {
+		return rows.Err()
+	}
+
+	return nil
 }
 
 func (db *Database) Notify(info info.NotifyInfo, method string) error {
@@ -134,7 +176,7 @@ func (db *Database) Notify(info info.NotifyInfo, method string) error {
 	return nil
 }
 
-func (db *Database) GetVideoNotifyInfos(videoID string) ([]info.NotifyInfo, error) {
+func (db *Database) GetNotifyInfosByVideoID(videoID string) ([]info.NotifyInfo, error) {
 	rows, err := db.Query(
 		"SELECT video_id, chat_id, message_id FROM notifications WHERE video_id = ?;",
 		videoID,
