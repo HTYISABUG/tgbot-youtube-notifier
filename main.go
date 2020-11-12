@@ -45,7 +45,7 @@ func main() {
 
 		time.Sleep(time.Second * 5)
 
-		log.Println("Goodbye.")
+		log.Println("Goodbye")
 		os.Exit(0)
 	}()
 

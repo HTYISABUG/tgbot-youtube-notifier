@@ -121,29 +121,7 @@ func (s *Server) serviceRelay() {
 			case tgbot.TypeSubscribe:
 				go s.subscribeService(*info.SubscribeInfo)
 			case tgbot.TypeList:
-				go func() {
-					err := s.db.GetListInfosByUserID(info.ListInfo)
-					if err != nil {
-						log.Println(err)
-					} else {
-						list := []string{"You already subscribed following channels:"}
-
-						for i := 0; i < len(info.ListInfo.ChannelIDs); i++ {
-							chID := tgbot.Escape(info.ListInfo.ChannelIDs[i])
-							chTitle := tgbot.Escape(info.ListInfo.ChannelTitles[i])
-							list = append(list, tgbot.InlineLink(chTitle, "https://www.youtube.com/channel/"+chID))
-						}
-
-						if _, err := s.tg.SendMessage(
-							info.ListInfo.ChatID,
-							strings.Join(list, "\n"),
-							map[string]interface{}{
-								"disable_web_page_preview": true,
-							}); err != nil {
-							log.Println(err)
-						}
-					}
-				}()
+				go s.listService(*info.ListInfo)
 			}
 		case entry := <-s.notifyCh:
 			go s.notifyHandler(entry)
@@ -237,6 +215,38 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 					log.Println(err)
 				}
 			}
+		}
+	}
+
+	go func() {
+		_, err := s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", entry.Author, entry.ChannelID)
+		if err != nil {
+			log.Println(err)
+		}
+	}()
+}
+
+func (s *Server) listService(info info.ListInfo) {
+	err := s.db.GetListInfosByUserID(&info)
+	if err != nil {
+		log.Println(err)
+	} else {
+		list := []string{"You already subscribed following channels:"}
+
+		for i := 0; i < len(info.ChannelIDs); i++ {
+			chID := tgbot.Escape(info.ChannelIDs[i])
+			chTitle := tgbot.Escape(info.ChannelTitles[i])
+			chLink := tgbot.InlineLink(chTitle, "https://www.youtube.com/channel/"+chID)
+			list = append(list, fmt.Sprintf("%2d\\|\t%s", i, chLink))
+		}
+
+		if _, err := s.tg.SendMessage(
+			info.ChatID,
+			strings.Join(list, "\n"),
+			map[string]interface{}{
+				"disable_web_page_preview": true,
+			}); err != nil {
+			log.Println(err)
 		}
 	}
 }
