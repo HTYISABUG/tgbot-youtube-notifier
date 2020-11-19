@@ -129,52 +129,6 @@ func (s *Server) serviceRelay() {
 	}
 }
 
-func (s *Server) subscribeService(info info.SubscribeInfo) {
-	channelID := tgbot.Escape(info.ChannelID)
-	title, err := s.subscribe(info)
-	if title == "" {
-		title = channelID
-	}
-	title = tgbot.Escape(title)
-
-	var msgTemplate string
-	if err == nil {
-		msgTemplate = "%s %s successful."
-	} else {
-		log.Println(err)
-		msgTemplate = "%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later."
-	}
-
-	msgTemplate = tgbot.Escape(msgTemplate)
-
-	// Send message
-	if _, err := s.tg.SendMessage(info.ChatID, fmt.Sprintf(
-		msgTemplate,
-		tgbot.ItalicText(tgbot.BordText("Subscribe")),
-		tgbot.InlineLink(title, "https://www.youtube.com/channel/"+channelID),
-	), map[string]interface{}{
-		"disable_web_page_preview": true,
-		"disable_notification":     true,
-	}); err != nil {
-		log.Println(err)
-	}
-}
-
-func (s *Server) subscribe(subInfo info.SubscribeInfo) (string, error) {
-	s.hub.Subscribe(subInfo.ChannelID)
-
-	chInfo, err := s.api.GetChannelInfo(subInfo.ChannelID)
-	if err != nil {
-		return "", err
-	}
-
-	if err := s.db.Subscribe(subInfo, *chInfo); err != nil {
-		return chInfo.Title, err
-	}
-
-	return chInfo.Title, nil
-}
-
 func (s *Server) notifyHandler(entry hub.Entry) {
 	chatIDs, err := s.db.GetSubsciberChatIDsByChannelID(entry.ChannelID)
 	if err != nil {
@@ -224,29 +178,4 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 			log.Println(err)
 		}
 	}()
-}
-
-func (s *Server) listService(info info.ListInfo) {
-	err := s.db.GetListInfosByUserID(&info)
-	if err != nil {
-		log.Println(err)
-	} else {
-		list := []string{"You already subscribed following channels:"}
-
-		for i := 0; i < len(info.ChannelIDs); i++ {
-			chID := tgbot.Escape(info.ChannelIDs[i])
-			chTitle := tgbot.Escape(info.ChannelTitles[i])
-			chLink := tgbot.InlineLink(chTitle, "https://www.youtube.com/channel/"+chID)
-			list = append(list, fmt.Sprintf("%2d\\|\t%s", i, chLink))
-		}
-
-		if _, err := s.tg.SendMessage(
-			info.ChatID,
-			strings.Join(list, "\n"),
-			map[string]interface{}{
-				"disable_web_page_preview": true,
-			}); err != nil {
-			log.Println(err)
-		}
-	}
 }
