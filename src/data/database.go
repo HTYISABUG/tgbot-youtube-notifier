@@ -149,15 +149,13 @@ func (db *Database) GetListInfosByUserID(linfo *info.ListInfo) error {
 
 	defer rows.Close()
 
-	var chatID int64
 	var chID, chTitle string
 	for rows.Next() {
-		err := rows.Scan(&chatID, &chID, &chTitle)
+		err := rows.Scan(&chID, &chTitle)
 		if err != nil {
 			return err
 		}
 
-		linfo.ChatID = chatID
 		linfo.ChannelIDs = append(linfo.ChannelIDs, chID)
 		linfo.ChannelTitles = append(linfo.ChannelTitles, chTitle)
 	}
