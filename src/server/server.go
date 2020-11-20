@@ -122,6 +122,8 @@ func (s *Server) serviceRelay() {
 				go s.subscribeService(*info.SubscribeInfo)
 			case tgbot.TypeList:
 				go s.listService(*info.ListInfo)
+			case tgbot.TypeUnsubscribe:
+				go s.unsubscribeService(*info.UnsubscribeInfo)
 			}
 		case entry := <-s.notifyCh:
 			go s.notifyHandler(entry)

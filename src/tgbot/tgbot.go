@@ -24,15 +24,18 @@ type Server struct {
 type TgInfo struct {
 	Type int
 
-	SubscribeInfo *info.SubscribeInfo
-	ListInfo      *info.ListInfo
+	SubscribeInfo   *info.SubscribeInfo
+	ListInfo        *info.ListInfo
+	UnsubscribeInfo *info.UnsubscribeInfo
 }
 
 const (
-	// Subscribe is a TgInfoType
+	// TypeSubscribe is a TgInfoType
 	TypeSubscribe = iota
-	// List is a TgInfoType
+	// TypeList is a TgInfoType
 	TypeList
+	// TypeUnsubscribe is a TgInfoType
+	TypeUnsubscribe
 )
 
 // NewServer returns a pointer to a new `Server` object.
@@ -66,6 +69,8 @@ func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
 			s.subscribeHandler(&update)
 		case "/list":
 			s.listHandler(&update)
+		case "/unsubscribe":
+			s.unsubscribeHandler(&update)
 		}
 	}
 }
@@ -167,5 +172,28 @@ func (s *Server) listHandler(update *update) {
 	s.infoCh <- TgInfo{
 		Type:     TypeList,
 		ListInfo: &info.ListInfo{UserID: userID},
+	}
+}
+
+func (s *Server) unsubscribeHandler(update *update) {
+	elements := strings.Fields(*update.Message.Text)
+
+	if len(elements) == 1 {
+		if _, err := s.SendMessage(
+			update.Message.Chat.ID,
+			"Please use /list to find the channel numbers "+
+				"which you want to unsubscribe\\. "+
+				"Then use `\\/unsubscribe <number\\> \\.\\.\\.` to unsubscribe\\.",
+			nil); err != nil {
+			log.Println(err)
+		}
+	} else {
+		s.infoCh <- TgInfo{
+			Type: TypeUnsubscribe,
+			UnsubscribeInfo: &info.UnsubscribeInfo{
+				UserID:      update.Message.From.ID,
+				ListNumbers: elements[1:],
+			},
+		}
 	}
 }

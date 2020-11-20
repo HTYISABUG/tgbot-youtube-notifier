@@ -74,7 +74,7 @@ func (db *Database) Subscribe(subInfo info.SubscribeInfo, chInfo info.ChannelInf
 
 // GetSubsciberChatIDsByChannelID returns all users' chat id that subscribes the channel
 func (db *Database) GetSubsciberChatIDsByChannelID(channelID string) ([]int64, error) {
-	rows, err := db.Query("SELECT chat_id FROM users INNER JOIN subscribers ON users.id == subscribers.user_id WHERE subscribers.channel_id = ?;", channelID)
+	rows, err := db.Query("SELECT chat_id FROM users INNER JOIN subscribers ON users.id = subscribers.user_id WHERE subscribers.channel_id = ?;", channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,17 +130,18 @@ func (db *Database) GetAllSubscibedChannelIDs() ([]string, error) {
 }
 
 // GetListInfosByUserID updates list infos by user id
-func (db *Database) GetListInfosByUserID(info *info.ListInfo) error {
-	var rows *sql.Rows
-	var err error
+func (db *Database) GetListInfosByUserID(linfo *info.ListInfo) error {
+	err := db.QueryRow("SELECT chat_id FROM users WHERE id = ?;", linfo.UserID).Scan(&linfo.ChatID)
+	if err != nil {
+		return err
+	}
 
-	// rows, err = db.Query("SELECT title FROM subscribers INNER JOIN channels ON subscribers.channel_id = channels.id WHERE user_id = ?;", userID)
-	rows, err = db.Query(
-		"SELECT users.chat_id, channels.id, channels.title FROM "+
+	rows, err := db.Query(
+		"SELECT channels.id, channels.title FROM "+
 			"channels INNER JOIN (users INNER JOIN subscribers ON users.id = subscribers.user_id) "+
 			"ON subscribers.channel_id = channels.id "+
 			"WHERE subscribers.user_id = ?;",
-		info.UserID,
+		linfo.UserID,
 	)
 	if err != nil {
 		return err
@@ -156,9 +157,9 @@ func (db *Database) GetListInfosByUserID(info *info.ListInfo) error {
 			return err
 		}
 
-		info.ChatID = chatID
-		info.ChannelIDs = append(info.ChannelIDs, chID)
-		info.ChannelTitles = append(info.ChannelTitles, chTitle)
+		linfo.ChatID = chatID
+		linfo.ChannelIDs = append(linfo.ChannelIDs, chID)
+		linfo.ChannelTitles = append(linfo.ChannelTitles, chTitle)
 	}
 
 	if rows.Err() != nil {

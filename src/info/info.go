@@ -25,3 +25,8 @@ type ListInfo struct {
 	ChannelIDs    []string
 	ChannelTitles []string
 }
+
+type UnsubscribeInfo struct {
+	UserID      int64
+	ListNumbers []string
+}
