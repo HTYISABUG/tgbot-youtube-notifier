@@ -3,8 +3,9 @@ package data
 import (
 	"database/sql"
 	"info"
+	"time"
 
-	_ "github.com/mattn/go-sqlite3" // SQLite3 driver
+	_ "github.com/go-sql-driver/mysql"
 )
 
 // Database manages all data that server needs to save
@@ -14,13 +15,17 @@ type Database struct {
 
 // NewDatabase returns a pointer to a new `Database` object.
 func NewDatabase(dataSourceName string) (*Database, error) {
-	db, err := sql.Open("sqlite3", dataSourceName)
+	db, err := sql.Open("mysql", dataSourceName)
 	if err != nil {
 		return nil, err
 	}
 
+	db.SetConnMaxLifetime(4 * time.Minute)
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(8)
+
 	// Create table to save subscribed channel data
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS channels (id TEXT PRIMARY KEY, title TEXT);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS channels (id VARCHAR(255) PRIMARY KEY, title TEXT);")
 	if err != nil {
 		return nil, err
 	}
@@ -33,13 +38,13 @@ func NewDatabase(dataSourceName string) (*Database, error) {
 
 	// Create table to save subscribers data
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS subscribers (" +
-		"user_id INTEGER, channel_id TEXT, PRIMARY KEY (user_id, channel_id));")
+		"user_id INTEGER, channel_id VARCHAR(255), PRIMARY KEY (user_id, channel_id));")
 	if err != nil {
 		return nil, err
 	}
 
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS notifications (" +
-		"video_id TEXT, chat_id INTEGER, message_id INTEGER, PRIMARY KEY (video_id, chat_id));")
+		"video_id VARCHAR(255), chat_id INTEGER, message_id INTEGER, PRIMARY KEY (video_id, chat_id));")
 	if err != nil {
 		return nil, err
 	}
@@ -49,17 +54,17 @@ func NewDatabase(dataSourceName string) (*Database, error) {
 
 // Subscribe registers info into corresponding table
 func (db *Database) Subscribe(subInfo info.SubscribeInfo, chInfo info.ChannelInfo) error {
-	_, err := db.Exec("INSERT OR IGNORE INTO channels (id, title) VALUES (?, ?);", subInfo.ChannelID, chInfo.Title)
+	_, err := db.Exec("INSERT IGNORE INTO channels (id, title) VALUES (?, ?);", subInfo.ChannelID, chInfo.Title)
 	if err != nil {
 		return err
 	}
 
-	_, err = db.Exec("INSERT OR IGNORE INTO users (id, chat_id) VALUES (?, ?);", subInfo.UserID, subInfo.ChatID)
+	_, err = db.Exec("INSERT IGNORE INTO users (id, chat_id) VALUES (?, ?);", subInfo.UserID, subInfo.ChatID)
 	if err != nil {
 		return err
 	}
 
-	_, err = db.Exec("INSERT OR IGNORE INTO subscribers (user_id, channel_id) VALUES (?, ?);", subInfo.UserID, subInfo.ChannelID)
+	_, err = db.Exec("INSERT IGNORE INTO subscribers (user_id, channel_id) VALUES (?, ?);", subInfo.UserID, subInfo.ChannelID)
 	if err != nil {
 		return err
 	}
