@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"hub"
-	"info"
 	"log"
 	"net/http"
 	"strings"
@@ -137,11 +136,10 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 	}
 
 	for _, id := range chatIDs {
-		if err := s.db.Notify(info.NotifyInfo{
-			VideoID:   entry.VideoID,
-			ChatID:    id,
-			MessageID: -1,
-		}, "IGNORE"); err != nil {
+		if _, err := s.db.Exec(
+			"INSERT IGNORE INTO notifications (video_id, chat_id, message_id) VALUES (?, ?, ?);",
+			entry.VideoID, id, -1,
+		); err != nil {
 			log.Println(err)
 		}
 	}
@@ -157,7 +155,11 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 					log.Println(err)
 				} else {
 					i.MessageID = message.ID
-					if err := s.db.Notify(i, "REPLACE"); err != nil {
+					if _, err := s.db.Exec(
+						"INSERT INTO notifications (video_id, chat_id, message_id) VALUES (?, ?, ?)"+
+							"ON DUPLICATE KEY UPDATE message_id = VALUES(message_id);",
+						i.VideoID, i.ChatID, i.MessageID,
+					); err != nil {
 						log.Println(err)
 					}
 				}
@@ -173,10 +175,5 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 		}
 	}
 
-	go func() {
-		_, err := s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", entry.Author, entry.ChannelID)
-		if err != nil {
-			log.Println(err)
-		}
-	}()
+	go s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", entry.Author, entry.ChannelID)
 }

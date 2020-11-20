@@ -30,11 +30,8 @@ type TgInfo struct {
 }
 
 const (
-	// TypeSubscribe is a TgInfoType
 	TypeSubscribe = iota
-	// TypeList is a TgInfoType
 	TypeList
-	// TypeUnsubscribe is a TgInfoType
 	TypeUnsubscribe
 )
 

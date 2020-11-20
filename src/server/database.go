@@ -167,19 +167,6 @@ func (db *Database) GetListInfosByUserID(linfo *info.ListInfo) error {
 	return nil
 }
 
-func (db *Database) Notify(info info.NotifyInfo, method string) error {
-	_, err := db.Exec(
-		"INSERT OR "+method+" INTO notifications (video_id, chat_id, message_id) VALUES (?, ?, ?);",
-		info.VideoID, info.ChatID, info.MessageID,
-	)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (db *Database) GetNotifyInfosByVideoID(videoID string) ([]info.NotifyInfo, error) {
 	rows, err := db.Query(
 		"SELECT video_id, chat_id, message_id FROM notifications WHERE video_id = ?;",
