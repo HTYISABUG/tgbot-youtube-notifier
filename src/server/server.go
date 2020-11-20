@@ -1,7 +1,6 @@
 package server
 
 import (
-	"data"
 	"fmt"
 	"hub"
 	"info"
@@ -16,7 +15,7 @@ import (
 type Server struct {
 	hub *hub.Client
 	tg  *tgbot.Server
-	db  *data.Database
+	db  *Database
 	api *ytapi.YtAPI
 
 	host      string
@@ -40,7 +39,7 @@ type Setting struct {
 
 // NewServer returns a pointer to a new `Server` object.
 func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
-	db, err := data.NewDatabase(setting.DBPath)
+	db, err := NewDatabase(setting.DBPath)
 	if err != nil {
 		return nil, err
 	}
