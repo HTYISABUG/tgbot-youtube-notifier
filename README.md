@@ -6,9 +6,9 @@
 
 Following are required libraries.
 ```shell
-go get github.com/dpup/gohubbub
-go get github.com/bitly/go-simplejson
-go get github.com/mattn/go-sqlite3
+go get -u github.com/dpup/gohubbub
+go get -u github.com/go-telegram-bot-api/telegram-bot-api
+go get -u github.com/go-sql-driver/mysql
 ```
 
 ### Setting
@@ -20,7 +20,8 @@ A setting `JSON` file is also required.
     "bot_token": "<bot token>",
     "ssl_cert": "<cert file path>",
     "ssl_key": "<key file path>",
-    "database": "<database path>"
+    "database": "<database path>",
+    "yt_api_key": "<yt api key>",
 }
 ```
 
