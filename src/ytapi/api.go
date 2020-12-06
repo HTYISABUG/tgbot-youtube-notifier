@@ -1,14 +1,12 @@
 package ytapi
 
 import (
-	"info"
-	"io/ioutil"
+	"encoding/json"
 	"net/http"
 	"net/url"
-
-	"github.com/bitly/go-simplejson"
 )
 
+// YtAPI ...
 type YtAPI struct {
 	*http.Client
 
@@ -19,29 +17,52 @@ const (
 	ytAPIChannelURL = "https://www.googleapis.com/youtube/v3/channels"
 )
 
+// NewYtAPI ...
 func NewYtAPI(key string) *YtAPI {
 	return &YtAPI{&http.Client{}, key}
 }
 
-func (api *YtAPI) GetChannelInfo(channelID string) (*info.ChannelInfo, error) {
-	url, _ := url.Parse(ytAPIChannelURL)
-	q := url.Query()
-	q.Set("key", api.key)
-	q.Set("id", channelID)
-	q.Set("part", "snippet")
-	url.RawQuery = q.Encode()
+// GetChannelSnippet ...
+func (api *YtAPI) GetChannelSnippet(channelID string) (ChannelSnippet, error) {
+	params := make(url.Values)
+	params.Set("key", api.key)
+	params.Set("id", channelID)
+	params.Set("part", "snippet")
 
-	resp, err := api.Get(url.String())
+	resources, err := api.makeChannelListRequest(params)
+	if err != nil {
+		return ChannelSnippet{}, err
+	}
+
+	return *resources[0].Snippet, nil
+}
+
+func (api *YtAPI) makeChannelListRequest(params url.Values) ([]ChannelResource, error) {
+	resp, err := api.makeListRequest(ytAPIChannelURL, params)
 	if err != nil {
 		return nil, err
 	}
 
-	b, _ := ioutil.ReadAll(resp.Body)
-	body, _ := simplejson.NewJson(b)
+	var resources []ChannelResource
+	json.Unmarshal(resp.Items, &resources)
 
-	var info info.ChannelInfo
-	info.ID = body.Get("items").GetIndex(0).Get("id").MustString()
-	info.Title = body.Get("items").GetIndex(0).Get("snippet").Get("title").MustString()
+	return resources, nil
+}
 
-	return &info, nil
+func (api *YtAPI) makeListRequest(rawurl string, params url.Values) (APIResponse, error) {
+	url, _ := url.Parse(rawurl)
+	url.RawQuery = params.Encode()
+
+	resp, err := api.Get(url.String())
+	if err != nil {
+		return APIResponse{}, err
+	}
+
+	defer resp.Body.Close()
+
+	var apiResp APIResponse
+	dec := json.NewDecoder(resp.Body)
+	err = dec.Decode(&apiResp)
+
+	return apiResp, err
 }

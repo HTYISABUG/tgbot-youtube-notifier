@@ -36,7 +36,10 @@ func NewClient(addr string, mux *http.ServeMux) (*Client, <-chan Entry) {
 // If a handler already exists for the given topic it will be overridden.
 func (client *Client) Subscribe(channelID string) {
 	topicURL := topicURLPrefix + channelID
-	client.Client.Subscribe(googleHub, topicURL, client.handler)
+
+	if !client.HasSubscription(topicURL) {
+		client.Client.Subscribe(googleHub, topicURL, client.handler)
+	}
 }
 
 // Unsubscribe sends an unsubscribe notification and removes the subscription.

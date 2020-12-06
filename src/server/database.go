@@ -2,19 +2,16 @@ package server
 
 import (
 	"database/sql"
-	"info"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // mysql driver
 )
 
-// Database manages all data that server needs to save
-type Database struct {
+type database struct {
 	*sql.DB
 }
 
-// NewDatabase returns a pointer to a new `Database` object.
-func NewDatabase(dataSourceName string) (*Database, error) {
+func newDatabase(dataSourceName string) (*database, error) {
 	db, err := sql.Open("mysql", dataSourceName)
 	if err != nil {
 		return nil, err
@@ -31,40 +28,40 @@ func NewDatabase(dataSourceName string) (*Database, error) {
 	}
 
 	// Create table to save subscribing user data
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, chat_id INTEGER);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, chatID INTEGER);")
 	if err != nil {
 		return nil, err
 	}
 
 	// Create table to save subscribers data
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS subscribers (" +
-		"user_id INTEGER, channel_id VARCHAR(255), PRIMARY KEY (user_id, channel_id));")
+		"userID INTEGER, channelID VARCHAR(255), PRIMARY KEY (userID, channelID));")
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS notifications (" +
-		"video_id VARCHAR(255), chat_id INTEGER, message_id INTEGER, PRIMARY KEY (video_id, chat_id));")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS monitoring (" +
+		"videoID VARCHAR(255), chatID INTEGER, messageID INTEGER, PRIMARY KEY (videoID, chatID));")
 	if err != nil {
 		return nil, err
 	}
 
-	return &Database{DB: db}, nil
+	return &database{DB: db}, nil
 }
 
 // Subscribe registers info into corresponding table
-func (db *Database) Subscribe(subInfo info.SubscribeInfo, chInfo info.ChannelInfo) error {
-	_, err := db.Exec("INSERT IGNORE INTO channels (id, title) VALUES (?, ?);", subInfo.ChannelID, chInfo.Title)
+func (db *database) subscribe(user rowUser, channel rowChannel) error {
+	_, err := db.Exec("INSERT IGNORE INTO users (id, chatID) VALUES (?, ?);", user.id, user.chatID)
 	if err != nil {
 		return err
 	}
 
-	_, err = db.Exec("INSERT IGNORE INTO users (id, chat_id) VALUES (?, ?);", subInfo.UserID, subInfo.ChatID)
+	_, err = db.Exec("INSERT IGNORE INTO channels (id, title) VALUES (?, ?);", channel.id, channel.title)
 	if err != nil {
 		return err
 	}
 
-	_, err = db.Exec("INSERT IGNORE INTO subscribers (user_id, channel_id) VALUES (?, ?);", subInfo.UserID, subInfo.ChannelID)
+	_, err = db.Exec("INSERT IGNORE INTO subscribers (userID, channelID) VALUES (?, ?);", user.id, channel.id)
 	if err != nil {
 		return err
 	}
@@ -72,104 +69,101 @@ func (db *Database) Subscribe(subInfo info.SubscribeInfo, chInfo info.ChannelInf
 	return nil
 }
 
-// GetSubsciberChatIDsByChannelID returns all users' chat id that subscribes the channel
-func (db *Database) GetSubsciberChatIDsByChannelID(channelID string) ([]int64, error) {
-	rows, err := db.Query("SELECT chat_id FROM users INNER JOIN subscribers ON users.id = subscribers.user_id WHERE subscribers.channel_id = ?;", channelID)
+func (db *database) getSubscribeUsersByChannelID(channelID string) ([]rowUser, error) {
+	rows, err := db.Query(
+		"SELECT users.id, users.chatID FROM "+
+			"users INNER JOIN subscribers ON users.id = subscribers.userID "+
+			"WHERE subscribers.channelID = ?;",
+		channelID,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	defer rows.Close()
 
-	var id int64
-	var chatIDs []int64
+	var results []rowUser
+	var user rowUser
 	for rows.Next() {
-		err := rows.Scan(&id)
+		err := rows.Scan(&user.id, &user.chatID)
 		if err != nil {
 			return nil, err
 		}
 
-		chatIDs = append(chatIDs, id)
+		results = append(results, user)
 	}
 
 	if rows.Err() != nil {
 		return nil, rows.Err()
 	}
 
-	return chatIDs, nil
+	return results, nil
 }
 
-// GetAllSubscibedChannelIDs returns all subscibed channels' id
-func (db *Database) GetAllSubscibedChannelIDs() ([]string, error) {
+func (db *database) getSubscribedChannels() ([]rowChannel, error) {
 	var rows *sql.Rows
 	var err error
 
-	rows, err = db.Query("SELECT id FROM channels;")
+	rows, err = db.Query("SELECT * FROM channels;")
 	if err != nil {
 		return nil, err
 	}
 
 	defer rows.Close()
 
-	var id string
-	var chIDs []string
+	var results []rowChannel
+	var channel rowChannel
 	for rows.Next() {
-		err := rows.Scan(&id)
+		err := rows.Scan(&channel.id, &channel.title)
 		if err != nil {
 			return nil, err
 		}
 
-		chIDs = append(chIDs, id)
+		results = append(results, channel)
 	}
 
 	if rows.Err() != nil {
 		return nil, rows.Err()
 	}
 
-	return chIDs, nil
+	return results, nil
 }
 
-// GetListInfosByUserID updates list infos by user id
-func (db *Database) GetListInfosByUserID(linfo *info.ListInfo) error {
-	err := db.QueryRow("SELECT chat_id FROM users WHERE id = ?;", linfo.UserID).Scan(&linfo.ChatID)
-	if err != nil {
-		return err
-	}
-
+func (db *database) getSubscribedChannelsByUserID(userID int) ([]rowChannel, error) {
 	rows, err := db.Query(
 		"SELECT channels.id, channels.title FROM "+
-			"channels INNER JOIN (users INNER JOIN subscribers ON users.id = subscribers.user_id) "+
-			"ON subscribers.channel_id = channels.id "+
-			"WHERE subscribers.user_id = ?;",
-		linfo.UserID,
+			"channels INNER JOIN subscribers ON channels.id = subscribers.channelID "+
+			"WHERE subscribers.userID = ?;",
+		userID,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	defer rows.Close()
 
-	var chID, chTitle string
+	var results []rowChannel
+	var channel rowChannel
+
 	for rows.Next() {
-		err := rows.Scan(&chID, &chTitle)
+		err := rows.Scan(&channel.id, &channel.title)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		linfo.ChannelIDs = append(linfo.ChannelIDs, chID)
-		linfo.ChannelTitles = append(linfo.ChannelTitles, chTitle)
+		results = append(results, channel)
 	}
 
 	if rows.Err() != nil {
-		return rows.Err()
+		return nil, rows.Err()
 	}
 
-	return nil
+	return results, nil
 }
 
-func (db *Database) GetNotifyInfosByVideoID(videoID string) ([]info.NotifyInfo, error) {
+func (db *database) getMonitoringMessagesByVideoID(videoID string) ([]rowMonitoring, error) {
 	rows, err := db.Query(
-		"SELECT video_id, chat_id, message_id FROM notifications WHERE video_id = ?;",
+		"SELECT videoID, chatID, messageID FROM monitoring WHERE videoID = ?;",
 		videoID,
 	)
 
@@ -179,20 +173,20 @@ func (db *Database) GetNotifyInfosByVideoID(videoID string) ([]info.NotifyInfo, 
 
 	defer rows.Close()
 
-	var nInfo info.NotifyInfo
-	var channels []info.NotifyInfo
+	var results []rowMonitoring
+	var monitoring rowMonitoring
 	for rows.Next() {
-		err := rows.Scan(&nInfo.VideoID, &nInfo.ChatID, &nInfo.MessageID)
+		err := rows.Scan(&monitoring.videoID, &monitoring.chatID, &monitoring.messageID)
 		if err != nil {
 			return nil, err
 		}
 
-		channels = append(channels, nInfo)
+		results = append(results, monitoring)
 	}
 
 	if rows.Err() != nil {
 		return nil, rows.Err()
 	}
 
-	return channels, nil
+	return results, nil
 }

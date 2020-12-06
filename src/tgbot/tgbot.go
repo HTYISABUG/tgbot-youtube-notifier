@@ -2,195 +2,74 @@ package tgbot
 
 import (
 	"encoding/json"
-	"fmt"
-	"info"
-	"io/ioutil"
-	"log"
 	"net/http"
-	"net/url"
-	"strings"
+
+	api "github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
-// Server is a Telegram Bot Server that can handle incoming and actively send messages.
-type Server struct {
-	client *http.Client
-
-	token string
-
-	infoCh chan<- TgInfo
+// TgBot allows you to interact with the Telegram Bot API.
+type TgBot struct {
+	*api.BotAPI
 }
 
-// TgInfo transmits info type and data to main server
-type TgInfo struct {
-	Type int
+// Update is an update response, from GetUpdates.
+type Update = api.Update
 
-	SubscribeInfo   *info.SubscribeInfo
-	ListInfo        *info.ListInfo
-	UnsubscribeInfo *info.UnsubscribeInfo
+// NewTgBot creates a new TgBot instance.
+//
+// It requires a token, provided by @BotFather on Telegram.
+func NewTgBot(token string) (*TgBot, error) {
+	bot, err := api.NewBotAPI(token)
+	return &TgBot{bot}, err
 }
 
-const (
-	TypeSubscribe = iota
-	TypeList
-	TypeUnsubscribe
-)
+// ListenForWebhook registers a http handler for a webhook.
+func (bot *TgBot) ListenForWebhook(pattern string, mux *http.ServeMux) api.UpdatesChannel {
+	ch := make(chan api.Update, bot.Buffer)
 
-// NewServer returns a pointer to a new `Server` object.
-func NewServer(token string, mux *http.ServeMux) (*Server, <-chan TgInfo) {
-	infoCh := make(chan TgInfo, 64)
-	server := &Server{
-		client: &http.Client{},
-		infoCh: infoCh,
-
-		token: token,
-	}
-
-	server.registerHandler(mux)
-
-	return server, infoCh
-}
-
-func (s *Server) registerHandler(mux *http.ServeMux) {
-	mux.HandleFunc("/tgbot", s.handler)
-}
-
-func (s *Server) handler(w http.ResponseWriter, r *http.Request) {
-	var update update
-	content, _ := ioutil.ReadAll(r.Body)
-	json.Unmarshal(content, &update)
-
-	if update.Message != nil && update.Message.Text != nil {
-		elements := strings.Fields(*update.Message.Text)
-		switch elements[0] {
-		case "/subscribe":
-			s.subscribeHandler(&update)
-		case "/list":
-			s.listHandler(&update)
-		case "/unsubscribe":
-			s.unsubscribeHandler(&update)
-		}
-	}
-}
-
-func (s *Server) subscribeHandler(update *update) {
-	if imNotARobot(update.Message.From) && isPrivate(update.Message.Chat) {
-		elements := strings.Fields(*update.Message.Text)
-
-		var results []string
-		for _, e := range elements[1:] {
-			if b, err := s.isValidYtChannel(e); err == nil && b {
-				url, _ := url.Parse(e)
-
-				userID := update.Message.From.ID
-				chatID := update.Message.Chat.ID
-				channelID := strings.Split(url.Path, "/")[2]
-
-				s.infoCh <- TgInfo{
-					Type: TypeSubscribe,
-					SubscribeInfo: &info.SubscribeInfo{
-						UserID:    userID,
-						ChatID:    chatID,
-						ChannelID: channelID,
-					},
-				}
-
-				channelID, e = Escape(channelID), Escape(e)
-				results = append(results, fmt.Sprintf(
-					"%s %s",
-					ItalicText(BordText("Subscribing")),
-					InlineLink(channelID, e),
-				))
-
-			} else if err != nil {
-				log.Println(err)
-
-				e := Escape(e)
-				results = append(results, fmt.Sprintf("Subscribe %s failed, internal server error", e))
-			} else if !b {
-				e := Escape(e)
-				results = append(results, fmt.Sprintf("%s is not a valid YouTube channel", e))
-			}
-		}
-
-		if _, err := s.SendMessage(
-			update.Message.Chat.ID,
-			strings.Join(results, "\n"),
-			map[string]interface{}{
-				"disable_web_page_preview": true,
-				"disable_notification":     true,
-			},
-		); err != nil {
-			log.Println(err)
-		}
-	}
-}
-
-func imNotARobot(user *user) bool {
-	return user != nil && user.IsBot != nil && !*user.IsBot
-}
-
-func isPrivate(chat *chat) bool {
-	return chat != nil && chat.Type == "private"
-}
-
-const (
-	ytHost     = "youtube.com"
-	ytHostFull = "www.youtube.com"
-)
-
-func (s *Server) isValidYtChannel(rawurl string) (bool, error) {
-	url, err := url.Parse(rawurl)
-	if err != nil {
-		return false, nil
-	}
-
-	if url.Scheme == "" {
-		url.Scheme = "https"
-		url, _ = url.Parse(url.String())
-	}
-
-	if url.Scheme == "http" || url.Scheme == "https" &&
-		(url.Host == ytHost || url.Host == ytHostFull) &&
-		strings.HasPrefix(url.Path, "/channel") {
-		resp, err := s.client.Get(url.String())
-
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		update, err := bot.HandleUpdate(r)
 		if err != nil {
-			return false, err
-		} else if resp.StatusCode == http.StatusOK {
-			return true, nil
+			errMsg, _ := json.Marshal(map[string]string{"error": err.Error()})
+			w.WriteHeader(http.StatusBadRequest)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(errMsg)
+			return
 		}
+
+		ch <- *update
 	}
 
-	return false, nil
-}
-
-func (s *Server) listHandler(update *update) {
-	userID := update.Message.From.ID
-	s.infoCh <- TgInfo{
-		Type:     TypeList,
-		ListInfo: &info.ListInfo{UserID: userID},
-	}
-}
-
-func (s *Server) unsubscribeHandler(update *update) {
-	elements := strings.Fields(*update.Message.Text)
-
-	if len(elements) == 1 {
-		if _, err := s.SendMessage(
-			update.Message.Chat.ID,
-			"Please use /list to find the channel numbers "+
-				"which you want to unsubscribe\\. "+
-				"Then use `\\/unsubscribe <number\\> \\.\\.\\.` to unsubscribe\\.",
-			nil); err != nil {
-			log.Println(err)
-		}
+	if mux != nil {
+		mux.HandleFunc(pattern, handler)
 	} else {
-		s.infoCh <- TgInfo{
-			Type: TypeUnsubscribe,
-			UnsubscribeInfo: &info.UnsubscribeInfo{
-				UserID:      update.Message.From.ID,
-				ListNumbers: elements[1:],
-			},
-		}
+		http.HandleFunc(pattern, handler)
 	}
+
+	return ch
 }
+
+// MessageConfig contains information about a SendMessage request.
+type MessageConfig = api.MessageConfig
+
+// EditMessageTextConfig allows you to modify the text in a message.
+type EditMessageTextConfig = api.EditMessageTextConfig
+
+// NewMessage creates a new Message.
+//
+// chatID is where to send it, text is the message text.
+func NewMessage(chatID int64, text string) MessageConfig {
+	msgConfig := api.NewMessage(chatID, text)
+	msgConfig.ParseMode = "MarkdownV2"
+	return msgConfig
+}
+
+// NewEditMessageText allows you to edit the text of a message.
+func NewEditMessageText(chatID int64, messageID int, text string) EditMessageTextConfig {
+	editMsgConfig := api.NewEditMessageText(chatID, messageID, text)
+	editMsgConfig.ParseMode = "MarkdownV2"
+	return editMsgConfig
+}
+
+// UpdatesChannel is the channel for getting updates.
+type UpdatesChannel = api.UpdatesChannel
