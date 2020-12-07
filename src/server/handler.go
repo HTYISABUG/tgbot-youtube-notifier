@@ -277,7 +277,7 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 
 				editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, entry2text(entry))
 				_, err := s.tg.Send(editMsgConfig)
-				if err != nil && err.Error() != notModified {
+				if err != nil && strings.HasPrefix(err.Error(), notModified) {
 					log.Println(err)
 				}
 			}
