@@ -48,3 +48,51 @@ type ChannelSnippet struct {
 	Localized       json.RawMessage `json:"localized"`
 	Country         string          `json:"country"`
 }
+
+// VideoResource ...
+type VideoResource struct {
+	Kind                 string                     `json:"kind"`
+	Etag                 string                     `json:"etag"`
+	ID                   string                     `json:"id"`
+	Snippet              *VideoSnippet              `json:"snippet"`
+	ContentDetails       json.RawMessage            `json:"contentDetails"`
+	Status               json.RawMessage            `json:"status"`
+	Statistics           json.RawMessage            `json:"statistics"`
+	Player               json.RawMessage            `json:"player"`
+	TopicDetails         json.RawMessage            `json:"topicDetails"`
+	RecordingDetails     json.RawMessage            `json:"recordingDetails"`
+	FileDetails          json.RawMessage            `json:"fileDetails"`
+	ProcessingDetails    json.RawMessage            `json:"processingDetails"`
+	Suggestions          json.RawMessage            `json:"suggestions"`
+	LiveStreamingDetails *VideoLiveStreamingDetails `json:"liveStreamingDetails"`
+	Localizations        json.RawMessage            `json:"localizations"`
+}
+
+// VideoSnippet object contains basic details about the video,
+// such as its title, description, and category.
+type VideoSnippet struct {
+	PublishedAt          string          `json:"publishedAt"`
+	Title                string          `json:"title"`
+	ChannelID            string          `json:"channelId"`
+	Description          string          `json:"description"`
+	Thumbnails           json.RawMessage `json:"thumbnails"`
+	ChannelTitle         string          `json:"channelTitle"`
+	Tags                 json.RawMessage `json:"tags"`
+	CategoryID           string          `json:"categoryId"`
+	LiveBroadcastContent string          `json:"liveBroadcastContent"`
+	DefaultLanguage      string          `json:"defaultLanguage"`
+	Localized            json.RawMessage `json:"localized"`
+	DefaultAudioLanguage string          `json:"defaultAudioLanguage"`
+}
+
+// VideoLiveStreamingDetails object contains metadata about a live video broadcast.
+// The object will only be present in a video resource if the video is an upcoming,
+// live, or completed live broadcast.
+type VideoLiveStreamingDetails struct {
+	ActualStartTime    string `json:"actualStartTime"`
+	ActualEndTime      string `json:"actualEndTime"`
+	ScheduledStartTime string `json:"scheduledStartTime"`
+	ScheduledEndTime   string `json:"scheduledEndTime"`
+	ConcurrentViewers  int64  `json:"concurrentViewers"`
+	ActiveLiveChatID   string `json:"activeLiveChatId"`
+}

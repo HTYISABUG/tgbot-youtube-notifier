@@ -104,12 +104,12 @@ func (s *Server) isValidYtChannel(rawurl string) (bool, error) {
 func (s *Server) subscribe(user rowUser, channel rowChannel) (string, error) {
 	s.hub.Subscribe(channel.id)
 
-	snippet, err := s.yt.GetChannelSnippet(channel.id)
+	resource, err := s.yt.GetChannelResource(channel.id)
 	if err != nil {
 		return "", err
 	}
 
-	channel.title = snippet.Title
+	channel.title = resource.Snippet.Title
 
 	if err := s.db.subscribe(user, channel); err != nil {
 		return channel.title, err
@@ -235,6 +235,7 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 		}
 	}
 }
+
 func (s *Server) notifyHandler(entry hub.Entry) {
 	users, err := s.db.getSubscribeUsersByChannelID(entry.ChannelID)
 	if err != nil {

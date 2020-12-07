@@ -2,8 +2,10 @@ package ytapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // YtAPI ...
@@ -14,7 +16,8 @@ type YtAPI struct {
 }
 
 const (
-	ytAPIChannelURL = "https://www.googleapis.com/youtube/v3/channels"
+	apiChannelsURL = "https://www.googleapis.com/youtube/v3/channels"
+	apiVideosURL   = "https://www.googleapis.com/youtube/v3/videos"
 )
 
 // NewYtAPI ...
@@ -22,28 +25,85 @@ func NewYtAPI(key string) *YtAPI {
 	return &YtAPI{&http.Client{}, key}
 }
 
-// GetChannelSnippet ...
-func (api *YtAPI) GetChannelSnippet(channelID string) (ChannelSnippet, error) {
+// GetChannelResource ...
+func (api *YtAPI) GetChannelResource(channelID string) (ChannelResource, error) {
+	resources, err := api.getChannelResources(
+		[]string{channelID},
+		[]string{"snippet"},
+	)
+
+	if err != nil {
+		return ChannelResource{}, err
+	} else if len(resources) == 0 {
+		return ChannelResource{}, errors.New("Invalid channel ID")
+	} else {
+		return resources[0], nil
+	}
+}
+
+func (api *YtAPI) getChannelResources(channelIDs, parts []string) ([]ChannelResource, error) {
 	params := make(url.Values)
 	params.Set("key", api.key)
-	params.Set("id", channelID)
-	params.Set("part", "snippet")
+	params.Set("id", strings.Join(channelIDs, ","))
+	params.Set("part", strings.Join(parts, ","))
 
 	resources, err := api.makeChannelListRequest(params)
 	if err != nil {
-		return ChannelSnippet{}, err
+		return []ChannelResource{}, err
 	}
 
-	return *resources[0].Snippet, nil
+	return resources, nil
 }
 
 func (api *YtAPI) makeChannelListRequest(params url.Values) ([]ChannelResource, error) {
-	resp, err := api.makeListRequest(ytAPIChannelURL, params)
+	resp, err := api.makeListRequest(apiChannelsURL, params)
 	if err != nil {
 		return nil, err
 	}
 
 	var resources []ChannelResource
+	json.Unmarshal(resp.Items, &resources)
+
+	return resources, nil
+}
+
+// GetVideoResource ...
+func (api *YtAPI) GetVideoResource(videoID string) (VideoResource, error) {
+	resources, err := api.getVideoResources(
+		[]string{videoID},
+		[]string{"snippet", "liveStreamingDetails"},
+	)
+
+	if err != nil {
+		return VideoResource{}, err
+	} else if len(resources) == 0 {
+		return VideoResource{}, errors.New("Invalid video ID")
+	} else {
+		return resources[0], nil
+	}
+}
+
+func (api *YtAPI) getVideoResources(videoIDs, parts []string) ([]VideoResource, error) {
+	params := make(url.Values)
+	params.Set("key", api.key)
+	params.Set("id", strings.Join(videoIDs, ","))
+	params.Set("part", strings.Join(parts, ","))
+
+	resources, err := api.makeVideoListRequest(params)
+	if err != nil {
+		return []VideoResource{}, err
+	}
+
+	return resources, nil
+}
+
+func (api *YtAPI) makeVideoListRequest(params url.Values) ([]VideoResource, error) {
+	resp, err := api.makeListRequest(apiVideosURL, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var resources []VideoResource
 	json.Unmarshal(resp.Items, &resources)
 
 	return resources, nil
