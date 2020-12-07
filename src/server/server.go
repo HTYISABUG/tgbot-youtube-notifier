@@ -126,11 +126,11 @@ func (s *Server) handlerRelay() {
 				elements := strings.Fields(update.Message.Text)
 				switch elements[0] {
 				case "/subscribe":
-					s.subscribeHandler(update)
+					go s.subscribeHandler(update)
 				case "/list":
-					s.listHandler(update)
+					go s.listHandler(update)
 				case "/unsubscribe":
-					s.unsubscribeHandler(update)
+					go s.unsubscribeHandler(update)
 				}
 			}
 		case entry := <-s.notifyCh:

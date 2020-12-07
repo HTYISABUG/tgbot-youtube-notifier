@@ -5,26 +5,41 @@ import (
 	"encoding/xml"
 )
 
-type feed struct {
-	Entry Entry `xml:"entry"`
+// Feed ...
+type Feed struct {
+	Entry        Entry        `xml:"entry"`
+	DeletedEntry DeletedEntry `xml:"http://purl.org/atompub/tombstones/1.0 deleted-entry"`
 }
 
-// Entry is for containing entry element in Feed.
+// Entry ...
 type Entry struct {
-	ID        string     `xml:"id"`
-	VideoID   string     `xml:"http://www.youtube.com/xml/schemas/2015 videoId"`
-	ChannelID string     `xml:"http://www.youtube.com/xml/schemas/2015 channelId"`
-	Title     string     `xml:"title"`
-	Link      RawMessage `xml:"link"`
-	Author    *Author    `xml:"author"`
-	Published string     `xml:"published"`
-	Updated   string     `xml:"updated"`
+	ID        string  `xml:"id"`
+	VideoID   string  `xml:"http://www.youtube.com/xml/schemas/2015 videoId"`
+	ChannelID string  `xml:"http://www.youtube.com/xml/schemas/2015 channelId"`
+	Title     string  `xml:"title"`
+	Link      *Link   `xml:"link"`
+	Author    *Author `xml:"author"`
+	Published string  `xml:"published"`
+	Updated   string  `xml:"updated"`
+}
+
+// Link ...
+type Link struct {
+	Href string `xml:"href,attr"`
 }
 
 // Author ...
 type Author struct {
 	Name string `xml:"name"`
 	URI  string `xml:"uri"`
+}
+
+// DeletedEntry ...
+type DeletedEntry struct {
+	Ref  string     `xml:"ref,attr"`
+	When string     `xml:"when,attr"`
+	Link *Link      `xml:"link"`
+	By   RawMessage `xml:"http://purl.org/atompub/tombstones/1.0 by"`
 }
 
 // RawMessage ...

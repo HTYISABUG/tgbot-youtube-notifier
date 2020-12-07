@@ -77,7 +77,7 @@ func (api *YtAPI) GetVideoResource(videoID string) (VideoResource, error) {
 	if err != nil {
 		return VideoResource{}, err
 	} else if len(resources) == 0 {
-		return VideoResource{}, errors.New("Invalid video ID")
+		return VideoResource{}, errors.New("Invalid video ID: " + videoID)
 	} else {
 		return resources[0], nil
 	}

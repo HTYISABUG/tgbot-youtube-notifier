@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"tgbot"
+	"time"
+	"ytapi"
 )
 
 func (s *Server) subscribeHandler(update tgbot.Update) {
@@ -237,11 +239,24 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 }
 
 func (s *Server) notifyHandler(entry hub.Entry) {
-	users, err := s.db.getSubscribeUsersByChannelID(entry.ChannelID)
+	resource, err := s.yt.GetVideoResource(entry.VideoID)
 	if err != nil {
 		log.Println(err)
+		return
+		// } else if liveStreamingDetails == nil {
+		// If the video is not an upcoming, live, or completed live broadcast, then discard.
+		// TODO: Ignore list? Maybe?
+		// return
 	}
 
+	// Query subscribed users from db according to channel id.
+	users, err := s.db.getSubscribeUsersByChannelID(resource.Snippet.ChannelID)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	// Insert or ignore new rows to monitoring table.
 	for _, u := range users {
 		if _, err := s.db.Exec(
 			"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
@@ -251,13 +266,15 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 		}
 	}
 
-	mMessages, err := s.db.getMonitoringMessagesByVideoID(entry.VideoID)
+	// Query monitoring rows according to video id.
+	mMessages, err := s.db.getMonitoringMessagesByVideoID(resource.ID)
 	if err != nil {
 		log.Println(err)
 	} else {
 		for _, mMsg := range mMessages {
 			if mMsg.messageID == -1 {
-				msgConfig := tgbot.NewMessage(mMsg.chatID, entry2text(entry))
+				// If this user still not being notified, send new notify message.
+				msgConfig := tgbot.NewMessage(mMsg.chatID, newNotifyMessageText(resource))
 				message, err := s.tg.Send(msgConfig)
 
 				if err != nil {
@@ -273,16 +290,91 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 					}
 				}
 			} else {
+				// If this user has be notified, edit existing notify message.
 				const notModified = "Bad Request: message is not modified"
 
-				editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, entry2text(entry))
+				editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, newNotifyMessageText(resource))
 				_, err := s.tg.Send(editMsgConfig)
-				if err != nil && strings.HasPrefix(err.Error(), notModified) {
+				if err != nil && !strings.HasPrefix(err.Error(), notModified) {
 					log.Println(err)
 				}
 			}
 		}
 	}
 
-	go s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", entry.Author, entry.ChannelID)
+	go s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", resource.Snippet.ChannelTitle, resource.Snippet.ChannelID)
+}
+
+func newNotifyMessageText(resource ytapi.VideoResource) string {
+	const ytVideoURLPrefix = "https://www.youtube.com/watch?v="
+
+	// Create basic info (title, link, channel).
+	basic := fmt.Sprintf(
+		"%s\n%s",
+		tgbot.InlineLink(
+			tgbot.BordText(tgbot.EscapeText(resource.Snippet.Title)),
+			ytVideoURLPrefix+tgbot.EscapeText(resource.ID),
+		),
+		tgbot.ItalicText(tgbot.EscapeText(resource.Snippet.ChannelTitle)),
+	)
+
+	liveStreamingDetails := resource.LiveStreamingDetails
+
+	if liveStreamingDetails == nil {
+		return basic
+	}
+
+	scheduledStartTime := liveStreamingDetails.ScheduledStartTime
+	actualStartTime := liveStreamingDetails.ActualStartTime
+	actualEndTime := liveStreamingDetails.ActualEndTime
+
+	var t time.Time
+	var liveStatus string
+	var timeTitle, timeDetail string
+	var appendix string
+
+	if actualEndTime != "" {
+		// It's a completed live.
+		liveStatus = "Completed"
+
+		timeTitle = "Actual End Time"
+		t, _ = time.Parse(time.RFC3339, actualEndTime)
+		timeDetail = t.Local().Format("2006/01/02 15:04:05")
+
+		start, _ := time.Parse(time.RFC3339, actualStartTime)
+		appendix = t.Sub(start).String()
+	} else if actualStartTime != "" {
+		// It's a live live.
+		liveStatus = "Live"
+
+		timeTitle = "Actual Start Time"
+		t, _ = time.Parse(time.RFC3339, actualStartTime)
+		timeDetail = t.Local().Format("2006/01/02 15:04:05")
+	} else if scheduledStartTime != "" {
+		// It's a upcoming live.
+		liveStatus = "Upcoming"
+
+		timeTitle = "Scheduled Start Time"
+		t, _ = time.Parse(time.RFC3339, scheduledStartTime)
+		timeDetail = t.Local().Format("2006/01/02 15:04:05")
+	}
+
+	detail := fmt.Sprintf(
+		"%s\n%s\n\n%s\n%s",
+		tgbot.BordText("Status"),
+		tgbot.ItalicText(liveStatus),
+		tgbot.BordText(timeTitle),
+		tgbot.ItalicText(timeDetail),
+	)
+
+	if appendix != "" {
+		detail = fmt.Sprintf(
+			"%s\n\n%s\n%s",
+			detail,
+			tgbot.BordText("Duration"),
+			appendix,
+		)
+	}
+
+	return fmt.Sprintf("%s\n\n%s", basic, detail)
 }
