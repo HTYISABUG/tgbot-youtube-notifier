@@ -55,6 +55,9 @@ type MessageConfig = api.MessageConfig
 // EditMessageTextConfig allows you to modify the text in a message.
 type EditMessageTextConfig = api.EditMessageTextConfig
 
+// DeleteMessageConfig contains information of a message in a chat to delete.
+type DeleteMessageConfig = api.DeleteMessageConfig
+
 // NewMessage creates a new Message.
 //
 // chatID is where to send it, text is the message text.
@@ -69,6 +72,11 @@ func NewEditMessageText(chatID int64, messageID int, text string) EditMessageTex
 	editMsgConfig := api.NewEditMessageText(chatID, messageID, text)
 	editMsgConfig.ParseMode = "MarkdownV2"
 	return editMsgConfig
+}
+
+// NewDeleteMessage creates a request to delete a message.
+func NewDeleteMessage(chatID int64, messageID int) DeleteMessageConfig {
+	return api.NewDeleteMessage(chatID, messageID)
 }
 
 // UpdatesChannel is the channel for getting updates.

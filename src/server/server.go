@@ -23,7 +23,7 @@ type Server struct {
 	serveMux  *http.ServeMux
 
 	tgUpdateCh tgbot.UpdatesChannel
-	notifyCh   <-chan hub.Entry
+	notifyCh   <-chan hub.Feed
 }
 
 // Setting represents server settings
@@ -133,8 +133,8 @@ func (s *Server) handlerRelay() {
 					go s.unsubscribeHandler(update)
 				}
 			}
-		case entry := <-s.notifyCh:
-			go s.notifyHandler(entry)
+		case feed := <-s.notifyCh:
+			go s.notifyHandler(feed)
 		}
 	}
 }

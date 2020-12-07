@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"hub"
 	"log"
@@ -238,7 +239,43 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 	}
 }
 
-func (s *Server) notifyHandler(entry hub.Entry) {
+func (s *Server) notifyHandler(feed hub.Feed) {
+	if feed.Entry != nil {
+		// Deal with normal entry.
+		s.entryHandler(feed.Entry)
+	} else if feed.DeletedEntry != nil {
+		// Get video id
+		videoID := strings.Split(feed.DeletedEntry.Ref, ":")[2]
+
+		// Query monitoring rows according to video id.
+		mMessages, err := s.db.getMonitoringMessagesByVideoID(videoID)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		// Remove monitoring messages.
+		for _, msg := range mMessages {
+			if msg.messageID != -1 {
+				deleteMsgConfig := tgbot.NewDeleteMessage(msg.chatID, msg.messageID)
+				_, err := s.tg.DeleteMessage(deleteMsgConfig)
+				if err != nil {
+					log.Println(err)
+				}
+			}
+		}
+
+		// Remove deleted video from monitoring table.
+		if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", videoID); err != nil {
+			log.Println(err)
+		}
+	} else {
+		log.Println(errors.New("Receive a empty feed"))
+	}
+}
+
+// EntryHandler used to handle normal entry from notifyHandler
+func (s *Server) entryHandler(entry *hub.Entry) {
 	resource, err := s.yt.GetVideoResource(entry.VideoID)
 	if err != nil {
 		log.Println(err)
@@ -260,7 +297,7 @@ func (s *Server) notifyHandler(entry hub.Entry) {
 	for _, u := range users {
 		if _, err := s.db.Exec(
 			"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
-			entry.VideoID, u.chatID, -1,
+			resource.ID, u.chatID, -1,
 		); err != nil {
 			log.Println(err)
 		}

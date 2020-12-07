@@ -7,8 +7,8 @@ import (
 
 // Feed ...
 type Feed struct {
-	Entry        Entry        `xml:"entry"`
-	DeletedEntry DeletedEntry `xml:"http://purl.org/atompub/tombstones/1.0 deleted-entry"`
+	Entry        *Entry        `xml:"entry"`
+	DeletedEntry *DeletedEntry `xml:"http://purl.org/atompub/tombstones/1.0 deleted-entry"`
 }
 
 // Entry ...
@@ -63,4 +63,8 @@ func (m *RawMessage) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 	*m = append((*m)[0:0], b.Bytes()...)
 
 	return nil
+}
+
+func (m *RawMessage) String() string {
+	return string(*m)
 }

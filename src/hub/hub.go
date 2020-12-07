@@ -15,13 +15,13 @@ const topicURLPrefix = "https://www.youtube.com/xml/feeds/videos.xml?channel_id=
 type Client struct {
 	*gohubbub.Client
 
-	notifyCh chan<- Entry
+	notifyCh chan<- Feed
 }
 
 // NewClient returns a pointer to a new `Client` object.
-func NewClient(addr string, mux *http.ServeMux) (*Client, <-chan Entry) {
+func NewClient(addr string, mux *http.ServeMux) (*Client, <-chan Feed) {
 	client := gohubbub.NewClient(addr, "Hub Client")
-	notifyCh := make(chan Entry, 64)
+	notifyCh := make(chan Feed, 64)
 
 	client.RegisterHandler(mux)
 
@@ -56,5 +56,5 @@ func (client *Client) handler(contentType string, body []byte) {
 		fmt.Println(string(body))
 	}
 
-	client.notifyCh <- feed.Entry
+	client.notifyCh <- feed
 }
