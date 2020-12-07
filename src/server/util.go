@@ -15,6 +15,6 @@ func entry2text(entry hub.Entry) string {
 			tgbot.BordText(tgbot.EscapeText(entry.Title)),
 			ytVideoURLPrefix+entry.VideoID,
 		),
-		tgbot.ItalicText(tgbot.EscapeText(entry.Author)),
+		tgbot.ItalicText(tgbot.EscapeText(string(entry.Author.Name))),
 	)
 }
