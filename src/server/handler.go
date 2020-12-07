@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"hub"
 	"log"
 	"net/http"
 	"net/url"
@@ -10,7 +11,7 @@ import (
 	"tgbot"
 )
 
-func (s *Server) subscribeService(update tgbot.Update) {
+func (s *Server) subscribeHandler(update tgbot.Update) {
 	elements := strings.Fields(update.Message.Text)
 
 	for _, e := range elements[1:] {
@@ -117,7 +118,7 @@ func (s *Server) subscribe(user rowUser, channel rowChannel) (string, error) {
 	return channel.title, nil
 }
 
-func (s *Server) listService(update tgbot.Update) {
+func (s *Server) listHandler(update tgbot.Update) {
 	userID := update.Message.From.ID
 	chatID := update.Message.Chat.ID
 
@@ -143,7 +144,7 @@ func (s *Server) listService(update tgbot.Update) {
 	}
 }
 
-func (s *Server) unsubscribeService(update tgbot.Update) {
+func (s *Server) unsubscribeHandler(update tgbot.Update) {
 	userID := update.Message.From.ID
 	chatID := update.Message.Chat.ID
 	elements := strings.Fields(update.Message.Text)
@@ -233,4 +234,54 @@ func (s *Server) unsubscribeService(update tgbot.Update) {
 			}
 		}
 	}
+}
+func (s *Server) notifyHandler(entry hub.Entry) {
+	users, err := s.db.getSubscribeUsersByChannelID(entry.ChannelID)
+	if err != nil {
+		log.Println(err)
+	}
+
+	for _, u := range users {
+		if _, err := s.db.Exec(
+			"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
+			entry.VideoID, u.chatID, -1,
+		); err != nil {
+			log.Println(err)
+		}
+	}
+
+	mMessages, err := s.db.getMonitoringMessagesByVideoID(entry.VideoID)
+	if err != nil {
+		log.Println(err)
+	} else {
+		for _, mMsg := range mMessages {
+			if mMsg.messageID == -1 {
+				msgConfig := tgbot.NewMessage(mMsg.chatID, entry2text(entry))
+				message, err := s.tg.Send(msgConfig)
+
+				if err != nil {
+					log.Println(err)
+				} else {
+					mMsg.messageID = message.MessageID
+					if _, err := s.db.Exec(
+						"INSERT INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?)"+
+							"ON DUPLICATE KEY UPDATE messageID = VALUES(messageID);",
+						mMsg.videoID, mMsg.chatID, mMsg.messageID,
+					); err != nil {
+						log.Println(err)
+					}
+				}
+			} else {
+				const notModified = "Bad Request: message is not modified"
+
+				editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, entry2text(entry))
+				_, err := s.tg.Send(editMsgConfig)
+				if err != nil && err.Error() != notModified {
+					log.Println(err)
+				}
+			}
+		}
+	}
+
+	go s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", entry.Author, entry.ChannelID)
 }

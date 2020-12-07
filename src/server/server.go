@@ -86,7 +86,7 @@ func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 	go s.hub.Start()
 
 	// Start service relay
-	go s.serviceRelay()
+	go s.handlerRelay()
 
 	// Since WebSub library can only send http link,
 	// we need a redirect server to redirect request to TLS server
@@ -118,7 +118,7 @@ func (s *Server) Close() {
 	}
 }
 
-func (s *Server) serviceRelay() {
+func (s *Server) handlerRelay() {
 	for {
 		select {
 		case update := <-s.tgUpdateCh:
@@ -126,66 +126,15 @@ func (s *Server) serviceRelay() {
 				elements := strings.Fields(update.Message.Text)
 				switch elements[0] {
 				case "/subscribe":
-					s.subscribeService(update)
+					s.subscribeHandler(update)
 				case "/list":
-					s.listService(update)
+					s.listHandler(update)
 				case "/unsubscribe":
-					s.unsubscribeService(update)
+					s.unsubscribeHandler(update)
 				}
 			}
 		case entry := <-s.notifyCh:
 			go s.notifyHandler(entry)
 		}
 	}
-}
-
-func (s *Server) notifyHandler(entry hub.Entry) {
-	users, err := s.db.getSubscribeUsersByChannelID(entry.ChannelID)
-	if err != nil {
-		log.Println(err)
-	}
-
-	for _, u := range users {
-		if _, err := s.db.Exec(
-			"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
-			entry.VideoID, u.chatID, -1,
-		); err != nil {
-			log.Println(err)
-		}
-	}
-
-	mMessages, err := s.db.getMonitoringMessagesByVideoID(entry.VideoID)
-	if err != nil {
-		log.Println(err)
-	} else {
-		for _, mMsg := range mMessages {
-			if mMsg.messageID == -1 {
-				msgConfig := tgbot.NewMessage(mMsg.chatID, entry2text(entry))
-				message, err := s.tg.Send(msgConfig)
-
-				if err != nil {
-					log.Println(err)
-				} else {
-					mMsg.messageID = message.MessageID
-					if _, err := s.db.Exec(
-						"INSERT INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?)"+
-							"ON DUPLICATE KEY UPDATE messageID = VALUES(messageID);",
-						mMsg.videoID, mMsg.chatID, mMsg.messageID,
-					); err != nil {
-						log.Println(err)
-					}
-				}
-			} else {
-				const notModified = "Bad Request: message is not modified"
-
-				editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, entry2text(entry))
-				_, err := s.tg.Send(editMsgConfig)
-				if err != nil && err.Error() != notModified {
-					log.Println(err)
-				}
-			}
-		}
-	}
-
-	go s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", entry.Author, entry.ChannelID)
 }
