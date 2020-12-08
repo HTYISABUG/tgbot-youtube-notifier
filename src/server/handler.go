@@ -339,7 +339,20 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 		}
 	}
 
-	go s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", resource.Snippet.ChannelTitle, resource.Snippet.ChannelID)
+	// It's a completed live.
+	// Remove it from monitor table.
+	if resource.LiveStreamingDetails.ActualEndTime != "" {
+		_, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", resource.ID)
+		if err != nil {
+			log.Println(err)
+		}
+	}
+
+	// Update channel title (Optional).
+	_, err = s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", resource.Snippet.ChannelTitle, resource.Snippet.ChannelID)
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func newNotifyMessageText(resource ytapi.VideoResource) string {
