@@ -22,44 +22,46 @@ func (s *Server) initScheduler() {
 
 func (s *Server) regularScheduler() {
 	for {
-		// Get all monitored video ids.
-		rows, err := s.db.Query("SELECT DISTINCT videoID FROM monitoring;")
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		defer rows.Close()
-
-		var videoIDs []string
-		var videoID string
-
-		for rows.Next() {
-			err := rows.Scan(&videoID)
+		func() {
+			// Get all monitored video ids.
+			rows, err := s.db.Query("SELECT DISTINCT videoID FROM monitoring;")
 			if err != nil {
 				log.Println(err)
 				return
 			}
 
-			videoIDs = append(videoIDs, videoID)
-		}
+			defer rows.Close()
 
-		if rows.Err() != nil {
-			log.Println(rows.Err())
-			return
-		}
+			var videoIDs []string
+			var videoID string
 
-		// Request video resources from yt api
-		resources, err := s.yt.GetVideoResources(videoIDs, []string{"snippet", "liveStreamingDetails"})
-		if err != nil {
-			log.Println(err)
-			return
-		}
+			for rows.Next() {
+				err := rows.Scan(&videoID)
+				if err != nil {
+					log.Println(err)
+					return
+				}
 
-		// Send or update notifies.
-		for _, r := range resources {
-			go s.sendVideoNotify(r)
-		}
+				videoIDs = append(videoIDs, videoID)
+			}
+
+			if rows.Err() != nil {
+				log.Println(rows.Err())
+				return
+			}
+
+			// Request video resources from yt api
+			resources, err := s.yt.GetVideoResources(videoIDs, []string{"snippet", "liveStreamingDetails"})
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			// Send or update notifies.
+			for _, r := range resources {
+				go s.sendVideoNotify(r)
+			}
+		}()
 
 		// Wait for next hour.
 		time.Sleep(time.Hour)
