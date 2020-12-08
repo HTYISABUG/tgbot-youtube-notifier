@@ -82,14 +82,17 @@ func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 		s.hub.Subscribe(ch.id)
 	}
 
-	// Run hub subscription requests
+	// Run hub subscription requests.
 	go s.hub.Start()
 
-	// Start service relay
+	// Start service relay.
 	go s.handlerRelay()
 
+	// Initialize update scheduler.
+	go s.initScheduler()
+
 	// Since WebSub library can only send http link,
-	// we need a redirect server to redirect request to TLS server
+	// we need a redirect server to redirect request to TLS server.
 	log.Println("Starting HTTP redirect server on port", s.httpPort)
 	go func() {
 		log.Fatalln(http.ListenAndServe(fmt.Sprintf(":%d", s.httpPort), http.HandlerFunc(s.redirectTLS)))
@@ -106,7 +109,7 @@ func (s *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
-// Close stops the main server and run clean up procedures
+// Close stops the main server and run clean up procedures.
 func (s *Server) Close() {
 	channels, err := s.db.getSubscribedChannels()
 	if err != nil {

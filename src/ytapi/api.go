@@ -69,7 +69,7 @@ func (api *YtAPI) makeChannelListRequest(params url.Values) ([]ChannelResource, 
 
 // GetVideoResource ...
 func (api *YtAPI) GetVideoResource(videoID string) (VideoResource, error) {
-	resources, err := api.getVideoResources(
+	resources, err := api.GetVideoResources(
 		[]string{videoID},
 		[]string{"snippet", "liveStreamingDetails"},
 	)
@@ -83,7 +83,8 @@ func (api *YtAPI) GetVideoResource(videoID string) (VideoResource, error) {
 	}
 }
 
-func (api *YtAPI) getVideoResources(videoIDs, parts []string) ([]VideoResource, error) {
+// GetVideoResources ...
+func (api *YtAPI) GetVideoResources(videoIDs, parts []string) ([]VideoResource, error) {
 	params := make(url.Values)
 	params.Set("key", api.key)
 	params.Set("id", strings.Join(videoIDs, ","))

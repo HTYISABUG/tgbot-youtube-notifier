@@ -241,8 +241,17 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 
 func (s *Server) notifyHandler(feed hub.Feed) {
 	if feed.Entry != nil {
-		// Deal with normal entry.
-		s.entryHandler(feed.Entry)
+		resource, err := s.yt.GetVideoResource(feed.Entry.VideoID)
+		if err != nil {
+			log.Println(err)
+			return
+		} else if resource.LiveStreamingDetails == nil {
+			// If the video is not an upcoming, live, or completed live broadcast, then discard.
+			// TODO: Ignore list? Maybe?
+			return
+		}
+
+		s.sendVideoNotify(resource)
 	} else if feed.DeletedEntry != nil {
 		// Get video id
 		videoID := strings.Split(feed.DeletedEntry.Ref, ":")[2]
@@ -274,18 +283,7 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 	}
 }
 
-// EntryHandler used to handle normal entry from notifyHandler
-func (s *Server) entryHandler(entry *hub.Entry) {
-	resource, err := s.yt.GetVideoResource(entry.VideoID)
-	if err != nil {
-		log.Println(err)
-		return
-		// } else if liveStreamingDetails == nil {
-		// If the video is not an upcoming, live, or completed live broadcast, then discard.
-		// TODO: Ignore list? Maybe?
-		// return
-	}
-
+func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 	// Query subscribed users from db according to channel id.
 	users, err := s.db.getSubscribeUsersByChannelID(resource.Snippet.ChannelID)
 	if err != nil {
@@ -316,6 +314,7 @@ func (s *Server) entryHandler(entry *hub.Entry) {
 
 				if err != nil {
 					log.Println(err)
+					fmt.Println(msgConfig.Text)
 				} else {
 					mMsg.messageID = message.MessageID
 					if _, err := s.db.Exec(
@@ -334,6 +333,7 @@ func (s *Server) entryHandler(entry *hub.Entry) {
 				_, err := s.tg.Send(editMsgConfig)
 				if err != nil && !strings.HasPrefix(err.Error(), notModified) {
 					log.Println(err)
+					fmt.Println(editMsgConfig.Text)
 				}
 			}
 		}
@@ -379,7 +379,13 @@ func newNotifyMessageText(resource ytapi.VideoResource) string {
 		timeDetail = t.Local().Format("2006/01/02 15:04:05")
 
 		start, _ := time.Parse(time.RFC3339, actualStartTime)
-		appendix = t.Sub(start).String()
+		dur := t.Sub(start).Round(time.Second)
+		appendix = fmt.Sprintf(
+			"%02d:%02d:%02d",
+			int(dur.Hours()),
+			int(dur.Minutes())%60,
+			int(dur.Seconds())%60,
+		)
 	} else if actualStartTime != "" {
 		// It's a live live.
 		liveStatus = "Live"
