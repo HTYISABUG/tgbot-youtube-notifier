@@ -68,11 +68,8 @@ func (api *YtAPI) makeChannelListRequest(params url.Values) ([]ChannelResource, 
 }
 
 // GetVideoResource ...
-func (api *YtAPI) GetVideoResource(videoID string) (VideoResource, error) {
-	resources, err := api.GetVideoResources(
-		[]string{videoID},
-		[]string{"snippet", "liveStreamingDetails"},
-	)
+func (api *YtAPI) GetVideoResource(videoID string, parts []string) (VideoResource, error) {
+	resources, err := api.GetVideoResources([]string{videoID}, parts)
 
 	if err != nil {
 		return VideoResource{}, err

@@ -241,7 +241,10 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 
 func (s *Server) notifyHandler(feed hub.Feed) {
 	if feed.Entry != nil {
-		resource, err := s.yt.GetVideoResource(feed.Entry.VideoID)
+		resource, err := s.yt.GetVideoResource(
+			feed.Entry.VideoID,
+			[]string{"snippet", "liveStreamingDetails"},
+		)
 		if err != nil {
 			log.Println(err)
 			return
