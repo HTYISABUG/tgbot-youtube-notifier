@@ -24,6 +24,8 @@ type Server struct {
 
 	tgUpdateCh tgbot.UpdatesChannel
 	notifyCh   <-chan hub.Feed
+
+	diligentTable map[string]bool
 }
 
 // Setting represents server settings
@@ -67,6 +69,8 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 
 		tgUpdateCh: tgUpdateCh,
 		notifyCh:   notifyCh,
+
+		diligentTable: make(map[string]bool),
 	}, nil
 }
 

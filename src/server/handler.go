@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"hub"
@@ -245,15 +246,15 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 
 		// Check if it's already exists.
 		var exists bool
-		err := s.db.QueryRow("SELECT EXISTS(SELECT * FROM videos WHERE id = ?);", feed.Entry.ID).Scan(&exists)
-		if err != nil {
+		err := s.db.QueryRow("SELECT EXISTS(SELECT * FROM videos WHERE id = ?);", feed.Entry.VideoID).Scan(&exists)
+		if err != nil && err != sql.ErrNoRows {
 			log.Println(err)
 			return
 		} else if exists {
 			// If the video already exists, then check if it's completed.
 			var completed bool
-			err := s.db.QueryRow("SELECT completed FROM videos WHERE id = ?;", feed.Entry.ID).Scan(&completed)
-			if err != nil {
+			err := s.db.QueryRow("SELECT completed FROM videos WHERE id = ?;", feed.Entry.VideoID).Scan(&completed)
+			if err != nil && err != sql.ErrNoRows {
 				log.Println(err)
 				return
 			} else if completed {
@@ -282,9 +283,18 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 				log.Println(err)
 			}
 			return
+		} else {
+			_, err := s.db.Exec(
+				"INSERT IGNORE INTO videos (id, completed) VALUES (?, ?);",
+				resource.ID, false,
+			)
+			if err != nil {
+				log.Println(err)
+			}
 		}
 
 		s.sendVideoNotify(resource)
+		s.tryDiligentScheduler(resource)
 
 		// Update channel title
 		_, err = s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", resource.Snippet.ChannelTitle, resource.Snippet.ChannelID)
@@ -378,12 +388,18 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 		}
 	}
 
-	// It's a completed live. Tag it as completed in videos table.
+	// It's a completed live.
 	if resource.IsCompletedLiveBroadcast() {
-		_, err := s.db.Exec("UPDATE videos SET completed = ? WHERE videoID = ?;", true, resource.ID)
+		// Tag it as completed in videos table.
+		_, err := s.db.Exec("UPDATE videos SET completed = ? WHERE id = ?;", true, resource.ID)
 		if err != nil {
 			log.Println(err)
 		}
+
+		// Remove it from monitoring table.
+		// if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", resource.ID); err != nil {
+		// 	log.Println(err)
+		// }
 	}
 }
 
