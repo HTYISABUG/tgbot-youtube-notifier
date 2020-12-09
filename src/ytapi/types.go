@@ -68,6 +68,32 @@ type VideoResource struct {
 	Localizations        json.RawMessage            `json:"localizations"`
 }
 
+// IsLiveBroadcast ...
+func (r *VideoResource) IsLiveBroadcast() bool {
+	return r.LiveStreamingDetails != nil
+}
+
+// IsUpcomingLiveBroadcast ...
+func (r *VideoResource) IsUpcomingLiveBroadcast() bool {
+	return r.IsLiveBroadcast() &&
+		r.LiveStreamingDetails.ActualEndTime == "" &&
+		r.LiveStreamingDetails.ActualStartTime == "" &&
+		r.LiveStreamingDetails.ScheduledStartTime != ""
+}
+
+// IsLiveLiveBroadcast ...
+func (r *VideoResource) IsLiveLiveBroadcast() bool {
+	return r.IsLiveBroadcast() &&
+		r.LiveStreamingDetails.ActualEndTime == "" &&
+		r.LiveStreamingDetails.ActualStartTime != ""
+}
+
+// IsCompletedLiveBroadcast ...
+func (r *VideoResource) IsCompletedLiveBroadcast() bool {
+	return r.IsLiveBroadcast() &&
+		r.LiveStreamingDetails.ActualEndTime != ""
+}
+
 // VideoSnippet object contains basic details about the video,
 // such as its title, description, and category.
 type VideoSnippet struct {

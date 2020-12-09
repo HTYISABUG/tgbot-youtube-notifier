@@ -241,21 +241,56 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 
 func (s *Server) notifyHandler(feed hub.Feed) {
 	if feed.Entry != nil {
+		// If it's a normal entry ...
+
+		// Check if it's already exists.
+		var exists bool
+		err := s.db.QueryRow("SELECT EXISTS(SELECT * FROM videos WHERE id = ?);", feed.Entry.ID).Scan(&exists)
+		if err != nil {
+			log.Println(err)
+			return
+		} else if exists {
+			// If the video already exists, then check if it's completed.
+			var completed bool
+			err := s.db.QueryRow("SELECT completed FROM videos WHERE id = ?;", feed.Entry.ID).Scan(&completed)
+			if err != nil {
+				log.Println(err)
+				return
+			} else if completed {
+				// If the video already completed, then discard.
+				return
+			}
+		}
+
+		// Request corresponding video resource
 		resource, err := s.yt.GetVideoResource(
 			feed.Entry.VideoID,
 			[]string{"snippet", "liveStreamingDetails"},
 		)
-
 		if err != nil {
 			log.Println(err)
 			return
-		} else if resource.LiveStreamingDetails == nil {
-			// If the video is not an upcoming, live, or completed live broadcast, then discard.
-			// TODO: Ignore list? Maybe?
+		} else if !resource.IsLiveBroadcast() {
+			// If the video is not a live broadcast, then discard.
+			// Also record it as completed.
+			_, err := s.db.Exec(
+				"INSERT INTO videos (id, completed) VALUES (?, ?)"+
+					"ON DUPLICATE KEY UPDATE completed = VALUES(completed);",
+				resource.ID, true,
+			)
+			if err != nil {
+				log.Println(err)
+			}
 			return
 		}
 
 		s.sendVideoNotify(resource)
+
+		// Update channel title
+		_, err = s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", resource.Snippet.ChannelTitle, resource.Snippet.ChannelID)
+		if err != nil {
+			log.Println(err)
+		}
 	} else if feed.DeletedEntry != nil {
 		// Get video id
 		videoID := strings.Split(feed.DeletedEntry.Ref, ":")[2]
@@ -309,53 +344,46 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 	mMessages, err := s.db.getMonitoringMessagesByVideoID(resource.ID)
 	if err != nil {
 		log.Println(err)
-	} else {
-		for _, mMsg := range mMessages {
-			if mMsg.messageID == -1 {
-				// If this user still not being notified, send new notify message.
-				msgConfig := tgbot.NewMessage(mMsg.chatID, newNotifyMessageText(resource))
-				message, err := s.tg.Send(msgConfig)
+		return
+	}
 
-				if err != nil {
-					log.Println(err)
-					fmt.Println(msgConfig.Text)
-				} else {
-					mMsg.messageID = message.MessageID
-					if _, err := s.db.Exec(
-						"INSERT INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?)"+
-							"ON DUPLICATE KEY UPDATE messageID = VALUES(messageID);",
-						mMsg.videoID, mMsg.chatID, mMsg.messageID,
-					); err != nil {
-						log.Println(err)
-					}
-				}
+	for _, mMsg := range mMessages {
+		if mMsg.messageID == -1 {
+			// If this user still not being notified, send new notify message.
+			msgConfig := tgbot.NewMessage(mMsg.chatID, newNotifyMessageText(resource))
+			message, err := s.tg.Send(msgConfig)
+
+			if err != nil {
+				log.Println(err)
+				fmt.Println(msgConfig.Text)
 			} else {
-				// If this user has be notified, edit existing notify message.
-				const notModified = "Bad Request: message is not modified"
-
-				editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, newNotifyMessageText(resource))
-				_, err := s.tg.Send(editMsgConfig)
-				if err != nil && !strings.HasPrefix(err.Error(), notModified) {
+				mMsg.messageID = message.MessageID
+				if _, err := s.db.Exec(
+					"UPDATE monitoring SET messageID = ? WHERE videoID = ? AND chatID = ?;",
+					mMsg.messageID, mMsg.videoID, mMsg.chatID,
+				); err != nil {
 					log.Println(err)
-					fmt.Println(editMsgConfig.Text)
 				}
+			}
+		} else {
+			// If this user has be notified, edit existing notify message.
+			const notModified = "Bad Request: message is not modified"
+
+			editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, newNotifyMessageText(resource))
+			_, err := s.tg.Send(editMsgConfig)
+			if err != nil && !strings.HasPrefix(err.Error(), notModified) {
+				log.Println(err)
+				fmt.Println(editMsgConfig.Text)
 			}
 		}
 	}
 
-	// It's a completed live.
-	// Remove it from monitor table.
-	if resource.LiveStreamingDetails.ActualEndTime != "" {
-		_, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", resource.ID)
+	// It's a completed live. Tag it as completed in videos table.
+	if resource.IsCompletedLiveBroadcast() {
+		_, err := s.db.Exec("UPDATE videos SET completed = ? WHERE videoID = ?;", true, resource.ID)
 		if err != nil {
 			log.Println(err)
 		}
-	}
-
-	// Update channel title (Optional).
-	_, err = s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", resource.Snippet.ChannelTitle, resource.Snippet.ChannelID)
-	if err != nil {
-		log.Println(err)
 	}
 }
 
