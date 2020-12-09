@@ -18,6 +18,19 @@ import (
 func (s *Server) subscribeHandler(update tgbot.Update) {
 	elements := strings.Fields(update.Message.Text)
 
+	if len(elements) == 1 {
+		msgConfig := tgbot.NewMessage(
+			update.Message.Chat.ID,
+			"Please use `\\/subscribe <channel url\\> \\.\\.\\.` to subscribe\\.",
+		)
+
+		if _, err := s.tg.Send(msgConfig); err != nil {
+			log.Println(err)
+		}
+
+		return
+	}
+
 	for _, e := range elements[1:] {
 		userID := update.Message.From.ID
 		chatID := update.Message.Chat.ID
@@ -71,7 +84,6 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 			log.Println(err)
 		}
 	}
-
 }
 
 func (s *Server) isValidYtChannel(rawurl string) (bool, error) {
