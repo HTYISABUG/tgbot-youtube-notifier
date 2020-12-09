@@ -3,6 +3,7 @@ package ytapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -74,7 +75,10 @@ func (api *YtAPI) GetVideoResource(videoID string, parts []string) (VideoResourc
 	if err != nil {
 		return VideoResource{}, err
 	} else if len(resources) == 0 {
-		return VideoResource{}, errors.New("Invalid video ID: " + videoID)
+		return VideoResource{}, fmt.Errorf(
+			"Invalid video ID: %s. The video may not exists, not available, or be deleted",
+			videoID,
+		)
 	} else {
 		return resources[0], nil
 	}

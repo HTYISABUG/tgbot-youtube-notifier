@@ -245,6 +245,7 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 			feed.Entry.VideoID,
 			[]string{"snippet", "liveStreamingDetails"},
 		)
+
 		if err != nil {
 			log.Println(err)
 			return
@@ -358,8 +359,9 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 	}
 }
 
+const ytVideoURLPrefix = "https://www.youtube.com/watch?v="
+
 func newNotifyMessageText(resource ytapi.VideoResource) string {
-	const ytVideoURLPrefix = "https://www.youtube.com/watch?v="
 
 	// Create basic info (title, link, channel).
 	basic := fmt.Sprintf(
@@ -431,7 +433,7 @@ func newNotifyMessageText(resource ytapi.VideoResource) string {
 			"%s\n\n%s\n%s",
 			detail,
 			tgbot.BordText("Duration"),
-			appendix,
+			tgbot.ItalicText(appendix),
 		)
 	}
 
