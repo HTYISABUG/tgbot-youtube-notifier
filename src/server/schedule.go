@@ -171,8 +171,8 @@ func (s *Server) diligentScheduler(videoID string) {
 			log.Printf("DEBUG: running " + ytVideoURLPrefix + resource.ID + " tolerance section")
 			log.Printf("DEBUG: already " + (-remains).String() + " has elapsed")
 
-			// Well, lets wait for 5 more minutes.
-			time.Sleep(5 * time.Minute)
+			// Well, lets wait for 1 more minutes.
+			time.Sleep(1 * time.Minute)
 		}
 	}
 }

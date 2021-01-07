@@ -2,7 +2,6 @@ package ytapi
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -36,7 +35,7 @@ func (api *YtAPI) GetChannelResource(channelID string) (ChannelResource, error) 
 	if err != nil {
 		return ChannelResource{}, err
 	} else if len(resources) == 0 {
-		return ChannelResource{}, errors.New("Invalid channel ID")
+		return ChannelResource{}, fmt.Errorf("Invalid channel ID: %s", channelID)
 	} else {
 		return resources[0], nil
 	}

@@ -132,11 +132,11 @@ func (s *Server) handlerRelay() {
 			if update.Message != nil && update.Message.Text != "" {
 				elements := strings.Fields(update.Message.Text)
 				switch elements[0] {
-				case "/subscribe":
+				case "/sub":
 					go s.subscribeHandler(update)
 				case "/list":
 					go s.listHandler(update)
-				case "/unsubscribe":
+				case "/unsub":
 					go s.unsubscribeHandler(update)
 				}
 			}

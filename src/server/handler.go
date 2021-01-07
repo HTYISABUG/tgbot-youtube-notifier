@@ -104,7 +104,7 @@ func (s *Server) isValidYtChannel(rawurl string) (bool, error) {
 
 	if url.Scheme == "http" || url.Scheme == "https" &&
 		(url.Host == ytHost || url.Host == ytHostFull) &&
-		strings.HasPrefix(url.Path, "/channel") {
+		strings.HasPrefix(url.Path, "/channel/") {
 		resp, err := http.Get(url.String())
 
 		if err != nil {
@@ -409,9 +409,9 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 		}
 
 		// Remove it from monitoring table.
-		// if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", resource.ID); err != nil {
-		// 	log.Println(err)
-		// }
+		if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", resource.ID); err != nil {
+			log.Println(err)
+		}
 	}
 }
 
