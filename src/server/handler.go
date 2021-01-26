@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"hub"
 	"log"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"tgbot"
@@ -37,9 +35,9 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 
 		var msgConfig tgbot.MessageConfig
 
-		if b, err := s.isValidYtChannel(e); err == nil && b {
+		if b, err := isValidYtChannel(e); err == nil && b {
 			// If e is a valid yt channel...
-			url, _ := url.Parse(e)
+			_, url, _ := followRedirectURL(e)
 			channelID := strings.Split(url.Path, "/")[2]
 
 			// Run subscription & get channel title
@@ -84,37 +82,6 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 			log.Println(err)
 		}
 	}
-}
-
-func (s *Server) isValidYtChannel(rawurl string) (bool, error) {
-	const (
-		ytHost     = "youtube.com"
-		ytHostFull = "www.youtube.com"
-	)
-
-	url, err := url.Parse(rawurl)
-	if err != nil {
-		return false, nil
-	}
-
-	if url.Scheme == "" {
-		url.Scheme = "https"
-		url, _ = url.Parse(url.String())
-	}
-
-	if url.Scheme == "http" || url.Scheme == "https" &&
-		(url.Host == ytHost || url.Host == ytHostFull) &&
-		strings.HasPrefix(url.Path, "/channel/") {
-		resp, err := http.Get(url.String())
-
-		if err != nil {
-			return false, err
-		} else if resp.StatusCode == http.StatusOK {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
 
 func (s *Server) subscribe(user rowUser, channel rowChannel) (string, error) {
@@ -494,4 +461,60 @@ func newNotifyMessageText(resource ytapi.VideoResource) string {
 	}
 
 	return fmt.Sprintf("%s\n\n%s", basic, detail)
+}
+
+func (s *Server) remindHandler(update tgbot.Update) {
+	elements := strings.Fields(update.Message.Text)
+
+	if len(elements) == 1 {
+		msgConfig := tgbot.NewMessage(
+			update.Message.Chat.ID,
+			"Please use `\\/remind <video url\\> \\.\\.\\.` to set video reminder\\.",
+		)
+
+		if _, err := s.tg.Send(msgConfig); err != nil {
+			log.Println(err)
+		}
+
+		return
+	}
+
+	for _, e := range elements[1:] {
+		chatID := update.Message.Chat.ID
+
+		if b, err := s.isValidYtVideo(e); err == nil && b {
+			_, url, _ := followRedirectURL(e)
+			videoID := url.Query()["v"][0]
+
+			if _, err := s.db.Exec(
+				"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
+				videoID, chatID, -1,
+			); err != nil {
+				log.Println(err)
+
+				msgTemplate := "%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later."
+				msgTemplate = tgbot.EscapeText(msgTemplate)
+				videoID = tgbot.EscapeText(videoID)
+
+				msgConfig := tgbot.NewMessage(chatID, fmt.Sprintf(
+					msgTemplate,
+					tgbot.ItalicText(tgbot.BordText("Remind")),
+					tgbot.InlineLink(videoID, "https://www.youtube.com/watch?v="+videoID),
+				))
+
+				msgConfig.DisableNotification = true
+				msgConfig.DisableWebPagePreview = true
+
+				if _, err := s.tg.Send(msgConfig); err != nil {
+					log.Println(err)
+				}
+
+				continue
+			}
+
+			entry := hub.Entry{VideoID: videoID}
+
+			go s.notifyHandler(hub.Feed{Entry: &entry})
+		}
+	}
 }
