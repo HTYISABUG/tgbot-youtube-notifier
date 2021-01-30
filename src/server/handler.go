@@ -19,7 +19,7 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 	if len(elements) == 1 {
 		msgConfig := tgbot.NewMessage(
 			update.Message.Chat.ID,
-			"Please use `\\/subscribe <channel url\\> \\.\\.\\.` to subscribe\\.",
+			"Please use `\\/sub <channel url\\> \\.\\.\\.` to subscribe\\.",
 		)
 
 		if _, err := s.tg.Send(msgConfig); err != nil {
@@ -29,10 +29,9 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 		return
 	}
 
-	for _, e := range elements[1:] {
-		userID := update.Message.From.ID
-		chatID := update.Message.Chat.ID
+	chatID := update.Message.Chat.ID
 
+	for _, e := range elements[1:] {
 		var msgConfig tgbot.MessageConfig
 
 		if b, err := isValidYtChannel(e); err == nil && b {
@@ -41,7 +40,7 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 			channelID := strings.Split(url.Path, "/")[2]
 
 			// Run subscription & get channel title
-			title, err := s.subscribe(rowUser{userID, chatID}, rowChannel{id: channelID})
+			title, err := s.subscribe(rowChat{id: chatID}, rowChannel{id: channelID})
 			if title == "" {
 				title = channelID
 			}
@@ -84,7 +83,7 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 	}
 }
 
-func (s *Server) subscribe(user rowUser, channel rowChannel) (string, error) {
+func (s *Server) subscribe(chat rowChat, channel rowChannel) (string, error) {
 	s.hub.Subscribe(channel.id)
 
 	resource, err := s.yt.GetChannelResource(channel.id)
@@ -94,7 +93,7 @@ func (s *Server) subscribe(user rowUser, channel rowChannel) (string, error) {
 
 	channel.title = resource.Snippet.Title
 
-	if err := s.db.subscribe(user, channel); err != nil {
+	if err := s.db.subscribe(chat, channel); err != nil {
 		return channel.title, err
 	}
 
@@ -102,10 +101,9 @@ func (s *Server) subscribe(user rowUser, channel rowChannel) (string, error) {
 }
 
 func (s *Server) listHandler(update tgbot.Update) {
-	userID := update.Message.From.ID
 	chatID := update.Message.Chat.ID
 
-	channels, err := s.db.getSubscribedChannelsByUserID(userID)
+	channels, err := s.db.getSubscribedChannelsByChatID(chatID)
 	if err != nil {
 		log.Println(err)
 	} else {
@@ -128,7 +126,6 @@ func (s *Server) listHandler(update tgbot.Update) {
 }
 
 func (s *Server) unsubscribeHandler(update tgbot.Update) {
-	userID := update.Message.From.ID
 	chatID := update.Message.Chat.ID
 	elements := strings.Fields(update.Message.Text)
 
@@ -137,14 +134,14 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 			chatID,
 			"Please use /list to find the channel numbers "+
 				"which you want to unsubscribe\\. "+
-				"Then use `\\/unsubscribe <number\\> \\.\\.\\.` to unsubscribe\\.",
+				"Then use `\\/unsub <number\\> \\.\\.\\.` to unsubscribe\\.",
 		)
 
 		if _, err := s.tg.Send(msgConfig); err != nil {
 			log.Println(err)
 		}
 	} else {
-		channels, err := s.db.getSubscribedChannelsByUserID(userID)
+		channels, err := s.db.getSubscribedChannelsByChatID(chatID)
 		if err != nil {
 			log.Println(err)
 		} else {
@@ -162,7 +159,7 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 
 			// Run unsubscription
 			for idx := range set {
-				if _, err := s.db.Exec("DELETE FROM subscribers WHERE userID = ? AND channelID = ?;", userID, channels[idx].id); err != nil {
+				if _, err := s.db.Exec("DELETE FROM subscribers WHERE chatID = ? AND channelID = ?;", chatID, channels[idx].id); err != nil {
 					log.Println(err)
 					continue
 				}
@@ -178,7 +175,7 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 				rows, err := s.db.Query(
 					"SELECT channels.id FROM " +
 						"channels LEFT JOIN subscribers ON channels.id = subscribers.channelID " +
-						"WHERE subscribers.userID IS NULL;",
+						"WHERE subscribers.chatID IS NULL;",
 				)
 				if err != nil {
 					log.Println(err)
@@ -312,18 +309,18 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 }
 
 func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
-	// Query subscribed users from db according to channel id.
-	users, err := s.db.getSubscribeUsersByChannelID(resource.Snippet.ChannelID)
+	// Query subscribed chats from db according to channel id.
+	chats, err := s.db.getSubscribeChatsByChannelID(resource.Snippet.ChannelID)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
 	// Insert or ignore new rows to monitoring table.
-	for _, u := range users {
+	for _, c := range chats {
 		if _, err := s.db.Exec(
 			"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
-			resource.ID, u.chatID, -1,
+			resource.ID, c.id, -1,
 		); err != nil {
 			log.Println(err)
 		}
@@ -338,7 +335,7 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 
 	for _, mMsg := range mMessages {
 		if mMsg.messageID == -1 {
-			// If this user still not being notified, send new notify message.
+			// If this chat still not being notified, send new notify message.
 			msgConfig := tgbot.NewMessage(mMsg.chatID, newNotifyMessageText(resource))
 			message, err := s.tg.Send(msgConfig)
 
@@ -355,7 +352,7 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 				}
 			}
 		} else {
-			// If this user has be notified, edit existing notify message.
+			// If this chat has be notified, edit existing notify message.
 			const notModified = "Bad Request: message is not modified"
 
 			editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, newNotifyMessageText(resource))

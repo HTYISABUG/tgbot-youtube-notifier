@@ -5,13 +5,13 @@ type rowChannel struct {
 	title string
 }
 
-type rowUser struct {
-	id     int
-	chatID int64
+type rowChat struct {
+	id    int64
+	admin bool
 }
 
 type rowSubscriber struct {
-	userID    int
+	chatID    int64
 	channelID string
 }
 

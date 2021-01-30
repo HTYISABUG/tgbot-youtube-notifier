@@ -27,15 +27,15 @@ func newDatabase(dataSourceName string) (*database, error) {
 		return nil, err
 	}
 
-	// Create table to save subscribing user data
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY, chatID INT);")
+	// Create table to save subscribing chat data
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS chats (id INT PRIMARY KEY, admin BOOL DEFAULT 0);")
 	if err != nil {
 		return nil, err
 	}
 
-	// Create table to save subscribers data
+	// Create table to save subscribers data pairs
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS subscribers (" +
-		"userID INT, channelID VARCHAR(255), PRIMARY KEY (userID, channelID));")
+		"chatID INT, channelID VARCHAR(255), PRIMARY KEY (chatID, channelID));")
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +56,8 @@ func newDatabase(dataSourceName string) (*database, error) {
 }
 
 // Subscribe registers info into corresponding table
-func (db *database) subscribe(user rowUser, channel rowChannel) error {
-	_, err := db.Exec("INSERT IGNORE INTO users (id, chatID) VALUES (?, ?);", user.id, user.chatID)
+func (db *database) subscribe(chat rowChat, channel rowChannel) error {
+	_, err := db.Exec("INSERT IGNORE INTO chats (id, admin) VALUES (?, ?);", chat.id, false)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (db *database) subscribe(user rowUser, channel rowChannel) error {
 		return err
 	}
 
-	_, err = db.Exec("INSERT IGNORE INTO subscribers (userID, channelID) VALUES (?, ?);", user.id, channel.id)
+	_, err = db.Exec("INSERT IGNORE INTO subscribers (chatID, channelID) VALUES (?, ?);", chat.id, channel.id)
 	if err != nil {
 		return err
 	}
@@ -75,10 +75,10 @@ func (db *database) subscribe(user rowUser, channel rowChannel) error {
 	return nil
 }
 
-func (db *database) getSubscribeUsersByChannelID(channelID string) ([]rowUser, error) {
+func (db *database) getSubscribeChatsByChannelID(channelID string) ([]rowChat, error) {
 	rows, err := db.Query(
-		"SELECT users.id, users.chatID FROM "+
-			"users INNER JOIN subscribers ON users.id = subscribers.userID "+
+		"SELECT chats.id, chats.admin FROM "+
+			"chats INNER JOIN subscribers ON chats.id = subscribers.chatID "+
 			"WHERE subscribers.channelID = ?;",
 		channelID,
 	)
@@ -88,15 +88,15 @@ func (db *database) getSubscribeUsersByChannelID(channelID string) ([]rowUser, e
 
 	defer rows.Close()
 
-	var results []rowUser
-	var user rowUser
+	var results []rowChat
+	var chat rowChat
 	for rows.Next() {
-		err := rows.Scan(&user.id, &user.chatID)
+		err := rows.Scan(&chat.id, &chat.admin)
 		if err != nil {
 			return nil, err
 		}
 
-		results = append(results, user)
+		results = append(results, chat)
 	}
 
 	if rows.Err() != nil {
@@ -135,12 +135,12 @@ func (db *database) getSubscribedChannels() ([]rowChannel, error) {
 	return results, nil
 }
 
-func (db *database) getSubscribedChannelsByUserID(userID int) ([]rowChannel, error) {
+func (db *database) getSubscribedChannelsByChatID(chatID int64) ([]rowChannel, error) {
 	rows, err := db.Query(
 		"SELECT channels.id, channels.title FROM "+
 			"channels INNER JOIN subscribers ON channels.id = subscribers.channelID "+
-			"WHERE subscribers.userID = ?;",
-		userID,
+			"WHERE subscribers.chatID = ?;",
+		chatID,
 	)
 	if err != nil {
 		return nil, err
