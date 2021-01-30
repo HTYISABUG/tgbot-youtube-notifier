@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hub"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"tgbot"
@@ -259,14 +260,6 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 				log.Println(err)
 			}
 			return
-		} else {
-			_, err := s.db.Exec(
-				"INSERT IGNORE INTO videos (id, completed) VALUES (?, ?);",
-				resource.ID, false,
-			)
-			if err != nil {
-				log.Println(err)
-			}
 		}
 
 		s.sendVideoNotify(resource)
@@ -309,6 +302,18 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 }
 
 func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
+	// Record video infos
+	t, _ := time.Parse(time.RFC3339, resource.LiveStreamingDetails.ScheduledStartTime)
+	_, err := s.db.Exec(
+		"INSERT INTO videos (id, completed, title, startTime, channelID) VALUES (?, ?, ?, ?, ?)"+
+			"ON DUPLICATE KEY UPDATE title = VALUES(title), startTime = VALUES(startTime), channelID = VALUES(channelID);",
+		resource.ID, false, resource.Snippet.Title, t.Unix(), resource.Snippet.ChannelID,
+	)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
 	// Query subscribed chats from db according to channel id.
 	chats, err := s.db.getSubscribeChatsByChannelID(resource.Snippet.ChannelID)
 	if err != nil {
@@ -382,7 +387,6 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 const ytVideoURLPrefix = "https://www.youtube.com/watch?v="
 
 func newNotifyMessageText(resource ytapi.VideoResource) string {
-
 	// Create basic info (title, link, channel).
 	basic := fmt.Sprintf(
 		"%s\n%s",
@@ -513,5 +517,86 @@ func (s *Server) remindHandler(update tgbot.Update) {
 
 			go s.notifyHandler(hub.Feed{Entry: &entry})
 		}
+	}
+}
+
+func (s *Server) scheduleHandler(update tgbot.Update) {
+	chatID := update.Message.Chat.ID
+
+	rows, err := s.db.Query(
+		"SELECT videos.id, videos.title, videos.startTime, channels.title "+
+			"FROM monitoring INNER JOIN videos ON monitoring.videoID = videos.id "+
+			"INNER JOIN channels ON channels.id = videos.channelID "+
+			"WHERE monitoring.chatID = ?;",
+		chatID,
+	)
+
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	defer rows.Close()
+
+	var results []struct {
+		video   rowVideo
+		chTitle string
+	}
+	var video rowVideo
+	var chTitle string
+	for rows.Next() {
+		err := rows.Scan(&video.id, &video.title, &video.startTime, &chTitle)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+
+		results = append(results, struct {
+			video   rowVideo
+			chTitle string
+		}{video, chTitle})
+	}
+
+	if rows.Err() != nil {
+		log.Println(rows.Err())
+		return
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].video.startTime < results[j].video.startTime
+	})
+
+	var list []string
+
+	for _, v := range results {
+		if v.video.startTime < time.Now().Unix() {
+			continue
+		}
+
+		text := fmt.Sprintf(
+			"%s %s\n%s",
+			time.Unix(v.video.startTime, 0).Local().Format("2006/01/02 15:04:05"),
+			tgbot.ItalicText(tgbot.EscapeText(v.chTitle)),
+			tgbot.InlineLink(
+				tgbot.BordText(tgbot.EscapeText(v.video.title)),
+				ytVideoURLPrefix+tgbot.EscapeText(v.video.id),
+			),
+		)
+
+		list = append(list, text)
+	}
+
+	if len(list) == 0 {
+		list = append(list, tgbot.EscapeText("No upcoming live streams."))
+	}
+
+	msgConfig := tgbot.NewMessage(chatID, strings.Join(list, "\n"))
+	msgConfig.DisableNotification = true
+	msgConfig.DisableWebPagePreview = true
+
+	_, err = s.tg.Send(msgConfig)
+	if err != nil {
+		log.Println(err)
+		fmt.Println(msgConfig.Text)
 	}
 }

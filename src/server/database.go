@@ -28,26 +28,26 @@ func newDatabase(dataSourceName string) (*database, error) {
 	}
 
 	// Create table to save subscribing chat data
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS chats (id INT PRIMARY KEY, admin BOOL DEFAULT 0);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS chats (id BIGINT PRIMARY KEY, admin BOOL DEFAULT 0);")
 	if err != nil {
 		return nil, err
 	}
 
 	// Create table to save subscribers data pairs
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS subscribers (" +
-		"chatID INT, channelID VARCHAR(255), PRIMARY KEY (chatID, channelID));")
+		"chatID BIGINT, channelID VARCHAR(255), PRIMARY KEY (chatID, channelID));")
 	if err != nil {
 		return nil, err
 	}
 
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS monitoring (" +
-		"videoID VARCHAR(255), chatID INT, messageID INT, PRIMARY KEY (videoID, chatID));")
+		"videoID VARCHAR(255), chatID BIGINT, messageID INT, PRIMARY KEY (videoID, chatID));")
 	if err != nil {
 		return nil, err
 	}
 
 	// Create table to save videos status
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS videos (id VARCHAR(255) PRIMARY KEY, completed BOOL);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS videos (id VARCHAR(255) PRIMARY KEY, completed BOOL, title TEXT, startTime BIGINT, channelID TEXT);")
 	if err != nil {
 		return nil, err
 	}

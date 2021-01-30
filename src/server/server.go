@@ -140,6 +140,8 @@ func (s *Server) handlerRelay() {
 					go s.unsubscribeHandler(update)
 				case "/remind":
 					go s.remindHandler(update)
+				case "/schedule":
+					go s.scheduleHandler(update)
 				}
 			}
 		case feed := <-s.notifyCh:

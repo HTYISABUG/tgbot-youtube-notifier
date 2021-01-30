@@ -20,3 +20,11 @@ type rowMonitoring struct {
 	chatID    int64
 	messageID int
 }
+
+type rowVideo struct {
+	id        string
+	title     string
+	startTime int64
+	completed bool
+	channelID string
+}
