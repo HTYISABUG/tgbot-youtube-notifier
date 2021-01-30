@@ -104,7 +104,7 @@ func (s *Server) subscribe(chat rowChat, channel rowChannel) (string, error) {
 func (s *Server) listHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 
-	channels, err := s.db.getSubscribedChannelsByChatID(chatID)
+	channels, err := s.db.getChannelsByChatID(chatID)
 	if err != nil {
 		log.Println(err)
 	} else {
@@ -142,7 +142,7 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 			log.Println(err)
 		}
 	} else {
-		channels, err := s.db.getSubscribedChannelsByChatID(chatID)
+		channels, err := s.db.getChannelsByChatID(chatID)
 		if err != nil {
 			log.Println(err)
 		} else {
@@ -173,36 +173,31 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 
 			// Check not subscribed channels & unsubscribe them from hub
 			go func() {
-				rows, err := s.db.Query(
-					"SELECT channels.id FROM " +
-						"channels LEFT JOIN subscribers ON channels.id = subscribers.channelID " +
+				var chIDs []string
+
+				err := s.db.queryResults(
+					&chIDs,
+					func(rows *sql.Rows, dest interface{}) error {
+						r := dest.(*string)
+						return rows.Scan(r)
+					},
+					"SELECT channels.id FROM "+
+						"channels LEFT JOIN subscribers ON channels.id = subscribers.channelID "+
 						"WHERE subscribers.chatID IS NULL;",
 				)
+
 				if err != nil {
 					log.Println(err)
 					return
 				}
 
-				defer rows.Close()
-
-				var cid string
-				for rows.Next() {
-					if err := rows.Scan(&cid); err != nil {
+				for _, id := range chIDs {
+					if _, err := s.db.Exec("DELETE FROM channels WHERE id = ?;", id); err != nil {
 						log.Println(err)
 						continue
 					}
 
-					if _, err := s.db.Exec("DELETE FROM channels WHERE id = ?;", cid); err != nil {
-						log.Println(err)
-						continue
-					}
-
-					s.hub.Unsubscribe(cid)
-				}
-
-				if rows.Err() != nil {
-					log.Println(rows.Err())
-					return
+					s.hub.Unsubscribe(id)
 				}
 			}()
 
@@ -275,7 +270,7 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 		videoID := strings.Split(feed.DeletedEntry.Ref, ":")[2]
 
 		// Query monitoring rows according to video id.
-		mMessages, err := s.db.getMonitoringMessagesByVideoID(videoID)
+		mMessages, err := s.db.getMonitoringByVideoID(videoID)
 		if err != nil {
 			log.Println(err)
 			return
@@ -305,9 +300,9 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 	// Record video infos
 	t, _ := time.Parse(time.RFC3339, resource.LiveStreamingDetails.ScheduledStartTime)
 	_, err := s.db.Exec(
-		"INSERT INTO videos (id, completed, title, startTime, channelID) VALUES (?, ?, ?, ?, ?)"+
-			"ON DUPLICATE KEY UPDATE title = VALUES(title), startTime = VALUES(startTime), channelID = VALUES(channelID);",
-		resource.ID, false, resource.Snippet.Title, t.Unix(), resource.Snippet.ChannelID,
+		"INSERT INTO videos (id, channelID, title, startTime, completed) VALUES (?, ?, ?, ?, ?)"+
+			"ON DUPLICATE KEY UPDATE channelID = VALUES(channelID), title = VALUES(title), startTime = VALUES(startTime);",
+		resource.ID, resource.Snippet.ChannelID, resource.Snippet.Title, t.Unix(), false,
 	)
 	if err != nil {
 		log.Println(err)
@@ -315,7 +310,20 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 	}
 
 	// Query subscribed chats from db according to channel id.
-	chats, err := s.db.getSubscribeChatsByChannelID(resource.Snippet.ChannelID)
+	var chats []rowChat
+
+	err = s.db.queryResults(
+		&chats,
+		func(rows *sql.Rows, dest interface{}) error {
+			r := dest.(*rowChat)
+			return rows.Scan(&r.id, &r.admin)
+		},
+		"SELECT chats.id, chats.admin FROM "+
+			"chats INNER JOIN subscribers ON chats.id = subscribers.chatID "+
+			"WHERE subscribers.channelID = ?;",
+		resource.Snippet.ChannelID,
+	)
+
 	if err != nil {
 		log.Println(err)
 		return
@@ -332,7 +340,7 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 	}
 
 	// Query monitoring rows according to video id.
-	mMessages, err := s.db.getMonitoringMessagesByVideoID(resource.ID)
+	mMessages, err := s.db.getMonitoringByVideoID(resource.ID)
 	if err != nil {
 		log.Println(err)
 		return
@@ -523,7 +531,22 @@ func (s *Server) remindHandler(update tgbot.Update) {
 func (s *Server) scheduleHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 
-	rows, err := s.db.Query(
+	var results []struct {
+		vID, vTitle string
+		vStartTime  int64
+		chTitle     string
+	}
+
+	err := s.db.queryResults(
+		&results,
+		func(rows *sql.Rows, dest interface{}) error {
+			res := dest.(*struct {
+				vID, vTitle string
+				vStartTime  int64
+				chTitle     string
+			})
+			return rows.Scan(&res.vID, &res.vTitle, &res.vStartTime, &res.chTitle)
+		},
 		"SELECT videos.id, videos.title, videos.startTime, channels.title "+
 			"FROM monitoring INNER JOIN videos ON monitoring.videoID = videos.id "+
 			"INNER JOIN channels ON channels.id = videos.channelID "+
@@ -536,50 +559,24 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 		return
 	}
 
-	defer rows.Close()
-
-	var results []struct {
-		video   rowVideo
-		chTitle string
-	}
-	var video rowVideo
-	var chTitle string
-	for rows.Next() {
-		err := rows.Scan(&video.id, &video.title, &video.startTime, &chTitle)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-
-		results = append(results, struct {
-			video   rowVideo
-			chTitle string
-		}{video, chTitle})
-	}
-
-	if rows.Err() != nil {
-		log.Println(rows.Err())
-		return
-	}
-
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].video.startTime < results[j].video.startTime
+		return results[i].vStartTime < results[j].vStartTime
 	})
 
 	var list []string
 
-	for _, v := range results {
-		if v.video.startTime < time.Now().Unix() {
+	for _, r := range results {
+		if r.vStartTime < time.Now().Unix() {
 			continue
 		}
 
 		text := fmt.Sprintf(
 			"%s %s\n%s",
-			time.Unix(v.video.startTime, 0).Local().Format("2006/01/02 15:04:05"),
-			tgbot.ItalicText(tgbot.EscapeText(v.chTitle)),
+			time.Unix(r.vStartTime, 0).Local().Format("01/02 15:04"),
+			tgbot.ItalicText(tgbot.EscapeText(r.chTitle)),
 			tgbot.InlineLink(
-				tgbot.BordText(tgbot.EscapeText(v.video.title)),
-				ytVideoURLPrefix+tgbot.EscapeText(v.video.id),
+				tgbot.BordText(tgbot.EscapeText(r.vTitle)),
+				ytVideoURLPrefix+tgbot.EscapeText(r.vID),
 			),
 		)
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"database/sql"
+	"reflect"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // mysql driver
@@ -22,13 +23,15 @@ func newDatabase(dataSourceName string) (*database, error) {
 	db.SetMaxIdleConns(8)
 
 	// Create table to save subscribed channel data
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS channels (id VARCHAR(255) PRIMARY KEY, title TEXT);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS channels (" +
+		"id VARCHAR(255) PRIMARY KEY, title TEXT);")
 	if err != nil {
 		return nil, err
 	}
 
 	// Create table to save subscribing chat data
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS chats (id BIGINT PRIMARY KEY, admin BOOL DEFAULT 0);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS chats (" +
+		"id BIGINT PRIMARY KEY, admin BOOL DEFAULT 0);")
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +50,8 @@ func newDatabase(dataSourceName string) (*database, error) {
 	}
 
 	// Create table to save videos status
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS videos (id VARCHAR(255) PRIMARY KEY, completed BOOL, title TEXT, startTime BIGINT, channelID TEXT);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS videos (" +
+		"id VARCHAR(255) PRIMARY KEY, channelID TEXT, title TEXT, startTime BIGINT, completed BOOL);")
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +61,7 @@ func newDatabase(dataSourceName string) (*database, error) {
 
 // Subscribe registers info into corresponding table
 func (db *database) subscribe(chat rowChat, channel rowChannel) error {
-	_, err := db.Exec("INSERT IGNORE INTO chats (id, admin) VALUES (?, ?);", chat.id, false)
+	_, err := db.Exec("INSERT IGNORE INTO chats (id) VALUES (?);", chat.id)
 	if err != nil {
 		return err
 	}
@@ -75,100 +79,56 @@ func (db *database) subscribe(chat rowChat, channel rowChannel) error {
 	return nil
 }
 
-func (db *database) getSubscribeChatsByChannelID(channelID string) ([]rowChat, error) {
-	rows, err := db.Query(
-		"SELECT chats.id, chats.admin FROM "+
-			"chats INNER JOIN subscribers ON chats.id = subscribers.chatID "+
-			"WHERE subscribers.channelID = ?;",
-		channelID,
+func (db *database) getChannels() ([]rowChannel, error) {
+	var channels []rowChannel
+
+	err := db.queryResults(
+		&channels,
+		func(rows *sql.Rows, dest interface{}) error {
+			r := dest.(*rowChannel)
+			return rows.Scan(&r.id, &r.title)
+		},
+		"SELECT id, title FROM channels;",
 	)
+
 	if err != nil {
 		return nil, err
 	}
 
-	defer rows.Close()
-
-	var results []rowChat
-	var chat rowChat
-	for rows.Next() {
-		err := rows.Scan(&chat.id, &chat.admin)
-		if err != nil {
-			return nil, err
-		}
-
-		results = append(results, chat)
-	}
-
-	if rows.Err() != nil {
-		return nil, rows.Err()
-	}
-
-	return results, nil
+	return channels, nil
 }
 
-func (db *database) getSubscribedChannels() ([]rowChannel, error) {
-	var rows *sql.Rows
-	var err error
+func (db *database) getChannelsByChatID(chatID int64) ([]rowChannel, error) {
+	var channels []rowChannel
 
-	rows, err = db.Query("SELECT * FROM channels;")
-	if err != nil {
-		return nil, err
-	}
-
-	defer rows.Close()
-
-	var results []rowChannel
-	var channel rowChannel
-	for rows.Next() {
-		err := rows.Scan(&channel.id, &channel.title)
-		if err != nil {
-			return nil, err
-		}
-
-		results = append(results, channel)
-	}
-
-	if rows.Err() != nil {
-		return nil, rows.Err()
-	}
-
-	return results, nil
-}
-
-func (db *database) getSubscribedChannelsByChatID(chatID int64) ([]rowChannel, error) {
-	rows, err := db.Query(
+	err := db.queryResults(
+		&channels,
+		func(rows *sql.Rows, dest interface{}) error {
+			ch := dest.(*rowChannel)
+			return rows.Scan(&ch.id, &ch.title)
+		},
 		"SELECT channels.id, channels.title FROM "+
 			"channels INNER JOIN subscribers ON channels.id = subscribers.channelID "+
 			"WHERE subscribers.chatID = ?;",
 		chatID,
 	)
+
 	if err != nil {
 		return nil, err
 	}
 
-	defer rows.Close()
-
-	var results []rowChannel
-	var channel rowChannel
-
-	for rows.Next() {
-		err := rows.Scan(&channel.id, &channel.title)
-		if err != nil {
-			return nil, err
-		}
-
-		results = append(results, channel)
-	}
-
-	if rows.Err() != nil {
-		return nil, rows.Err()
-	}
-
-	return results, nil
+	return channels, nil
 }
 
-func (db *database) getMonitoringMessagesByVideoID(videoID string) ([]rowMonitoring, error) {
-	rows, err := db.Query(
+func (db *database) getMonitoringByVideoID(videoID string) ([]rowMonitoring, error) {
+	var results []rowMonitoring
+
+	err := db.queryResults(
+		&results,
+		func(rows *sql.Rows, dest interface{}) error {
+			r := dest.(*rowMonitoring)
+			return rows.Scan(&r.videoID, &r.chatID, &r.messageID)
+		},
 		"SELECT videoID, chatID, messageID FROM monitoring WHERE videoID = ?;",
 		videoID,
 	)
@@ -177,22 +137,36 @@ func (db *database) getMonitoringMessagesByVideoID(videoID string) ([]rowMonitor
 		return nil, err
 	}
 
+	return results, nil
+}
+
+func (db *database) queryResults(
+	container interface{},
+	scan func(rows *sql.Rows, dest interface{}) error,
+	query string,
+	args ...interface{},
+) error {
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return err
+	}
+
 	defer rows.Close()
 
-	var results []rowMonitoring
-	var monitoring rowMonitoring
+	results := reflect.ValueOf(container).Elem()
+	element := reflect.New(results.Type().Elem())
 	for rows.Next() {
-		err := rows.Scan(&monitoring.videoID, &monitoring.chatID, &monitoring.messageID)
-		if err != nil {
-			return nil, err
+		if err := scan(rows, element.Interface()); err != nil {
+			return err
 		}
 
-		results = append(results, monitoring)
+		results.Set(reflect.Append(results, element.Elem()))
 	}
 
 	if rows.Err() != nil {
-		return nil, rows.Err()
+		return rows.Err()
 	}
 
-	return results, nil
+	return nil
 }

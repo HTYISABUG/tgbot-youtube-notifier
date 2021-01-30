@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"tgbot"
@@ -39,29 +40,19 @@ func (s *Server) regularScheduler() {
 
 func (s *Server) updateNotifies() {
 	// Get all monitored video ids.
-	rows, err := s.db.Query("SELECT DISTINCT videoID FROM monitoring;")
+	var videoIDs []string
+
+	err := s.db.queryResults(
+		&videoIDs,
+		func(rows *sql.Rows, dest interface{}) error {
+			r := dest.(*string)
+			return rows.Scan(r)
+		},
+		"SELECT DISTINCT videoID FROM monitoring;",
+	)
+
 	if err != nil {
 		log.Println(err)
-		return
-	}
-
-	defer rows.Close()
-
-	var videoIDs []string
-	var videoID string
-
-	for rows.Next() {
-		err := rows.Scan(&videoID)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		videoIDs = append(videoIDs, videoID)
-	}
-
-	if rows.Err() != nil {
-		log.Println(rows.Err())
 		return
 	}
 
@@ -137,7 +128,7 @@ func (s *Server) diligentScheduler(videoID string) {
 			return
 		} else if resource.IsLiveLiveBroadcast() {
 			// If live already start, stop diligent scheduler & send notifies.
-			mMessages, err := s.db.getMonitoringMessagesByVideoID(resource.ID)
+			mMessages, err := s.db.getMonitoringByVideoID(resource.ID)
 			if err != nil {
 				log.Println(err)
 				return

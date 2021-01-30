@@ -23,8 +23,8 @@ type rowMonitoring struct {
 
 type rowVideo struct {
 	id        string
+	channelID string
 	title     string
 	startTime int64
 	completed bool
-	channelID string
 }

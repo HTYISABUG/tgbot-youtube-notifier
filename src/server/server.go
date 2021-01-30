@@ -77,7 +77,7 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 // ListenAndServeTLS starts a HTTPS server using server ServeMux
 func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 	// Recover all subscribed channels
-	channels, err := s.db.getSubscribedChannels()
+	channels, err := s.db.getChannels()
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -115,7 +115,7 @@ func (s *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
 
 // Close stops the main server and run clean up procedures.
 func (s *Server) Close() {
-	channels, err := s.db.getSubscribedChannels()
+	channels, err := s.db.getChannels()
 	if err != nil {
 		log.Fatalln(err)
 	}
