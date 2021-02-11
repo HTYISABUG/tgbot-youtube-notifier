@@ -51,14 +51,12 @@ func (s *Server) isValidYtVideo(rawurl string) (bool, error) {
 
 	if ok && url.Host == ytHost && strings.HasPrefix(url.Path, "/watch") {
 		videoID := url.Query()["v"][0]
-		resources, err := s.yt.GetVideoResources([]string{videoID}, []string{"snippet"})
+		videos, err := s.yt.GetVideos([]string{videoID}, []string{"snippet"})
 		if err != nil {
 			return false, err
-		} else if len(resources) != 0 {
-			return true, nil
-		} else {
-			return false, nil
 		}
+
+		return len(videos) != 0, nil
 	}
 
 	return false, nil

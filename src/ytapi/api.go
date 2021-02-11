@@ -1,129 +1,132 @@
 package ytapi
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
-	"strings"
+	"log"
+
+	"google.golang.org/api/youtube/v3"
 )
 
 // YtAPI ...
 type YtAPI struct {
-	*http.Client
-
-	key string
+	*youtube.Service
 }
 
-const (
-	apiChannelsURL = "https://www.googleapis.com/youtube/v3/channels"
-	apiVideosURL   = "https://www.googleapis.com/youtube/v3/videos"
-)
+const ytIDNumLimit = 50
 
 // NewYtAPI ...
-func NewYtAPI(key string) *YtAPI {
-	return &YtAPI{&http.Client{}, key}
+func NewYtAPI() *YtAPI {
+	client := getClient(youtube.YoutubeReadonlyScope)
+	service, err := youtube.New(client)
+	if err != nil {
+		log.Fatalf("Error creating YouTube client: %v", err)
+	}
+
+	return &YtAPI{service}
 }
 
-// GetChannelResource ...
-func (api *YtAPI) GetChannelResource(channelID string) (ChannelResource, error) {
-	resources, err := api.getChannelResources(
-		[]string{channelID},
-		[]string{"snippet"},
-	)
+// Channel is *channel* resource contains information about a YouTube
+// channel.
+type Channel = youtube.Channel
+
+// GetChannel ...
+func (api *YtAPI) GetChannel(channelID string, parts []string) (*Channel, error) {
+	channels, err := api.GetChannels([]string{channelID}, parts)
 
 	if err != nil {
-		return ChannelResource{}, err
-	} else if len(resources) == 0 {
-		return ChannelResource{}, fmt.Errorf("Invalid channel ID: %s", channelID)
+		return nil, err
+	} else if len(channels) == 0 {
+		return nil, fmt.Errorf("Invalid channel ID: %s", channelID)
 	} else {
-		return resources[0], nil
+		return channels[0], nil
 	}
 }
 
-func (api *YtAPI) getChannelResources(channelIDs, parts []string) ([]ChannelResource, error) {
-	params := make(url.Values)
-	params.Set("key", api.key)
-	params.Set("id", strings.Join(channelIDs, ","))
-	params.Set("part", strings.Join(parts, ","))
+// GetChannels ...
+func (api *YtAPI) GetChannels(channelIDs, parts []string) ([]*Channel, error) {
+	var chunkLen = (len(channelIDs) + ytIDNumLimit - 1) / ytIDNumLimit
+	var channels []*youtube.Channel
 
-	resources, err := api.makeChannelListRequest(params)
-	if err != nil {
-		return []ChannelResource{}, err
+	for i := 0; i < chunkLen; i++ {
+		begin := i * ytIDNumLimit
+		end := begin + ytIDNumLimit
+		if end > len(channelIDs) {
+			end = len(channelIDs)
+		}
+
+		resp, err := api.getChannelListResponse(channelIDs[begin:end], parts)
+		if err != nil {
+			return nil, err
+		}
+
+		channels = append(channels, resp.Items...)
 	}
 
-	return resources, nil
+	return channels, nil
 }
 
-func (api *YtAPI) makeChannelListRequest(params url.Values) ([]ChannelResource, error) {
-	resp, err := api.makeListRequest(apiChannelsURL, params)
+func (api *YtAPI) getChannelListResponse(channelIDs, part []string) (*youtube.ChannelListResponse, error) {
+	call := api.Channels.List(part)
+	call = call.Id(channelIDs...)
+
+	resp, err := call.Do()
 	if err != nil {
 		return nil, err
 	}
 
-	var resources []ChannelResource
-	json.Unmarshal(resp.Items, &resources)
-
-	return resources, nil
+	return resp, nil
 }
 
-// GetVideoResource ...
-func (api *YtAPI) GetVideoResource(videoID string, parts []string) (VideoResource, error) {
-	resources, err := api.GetVideoResources([]string{videoID}, parts)
+// Video is *video* resource represents a YouTube video.
+type Video = youtube.Video
+
+// GetVideo ...
+func (api *YtAPI) GetVideo(videoID string, parts []string) (*Video, error) {
+	videos, err := api.GetVideos([]string{videoID}, parts)
 
 	if err != nil {
-		return VideoResource{}, err
-	} else if len(resources) == 0 {
-		return VideoResource{}, fmt.Errorf(
+		return nil, err
+	} else if len(videos) == 0 {
+		return nil, fmt.Errorf(
 			"Invalid video ID: %s. The video may not exists, not available, or be deleted",
 			videoID,
 		)
 	} else {
-		return resources[0], nil
+		return videos[0], nil
 	}
 }
 
-// GetVideoResources ...
-func (api *YtAPI) GetVideoResources(videoIDs, parts []string) ([]VideoResource, error) {
-	params := make(url.Values)
-	params.Set("key", api.key)
-	params.Set("id", strings.Join(videoIDs, ","))
-	params.Set("part", strings.Join(parts, ","))
+// GetVideos ...
+func (api *YtAPI) GetVideos(videoIDs, parts []string) ([]*youtube.Video, error) {
+	var chunkLen = (len(videoIDs) + ytIDNumLimit - 1) / ytIDNumLimit
+	var videos []*youtube.Video
 
-	resources, err := api.makeVideoListRequest(params)
-	if err != nil {
-		return []VideoResource{}, err
+	for i := 0; i < chunkLen; i++ {
+		begin := i * ytIDNumLimit
+		end := begin + ytIDNumLimit
+		if end > len(videoIDs) {
+			end = len(videoIDs)
+		}
+
+		resp, err := api.getVideoListResponse(videoIDs[begin:end], parts)
+		if err != nil {
+			return nil, err
+		}
+
+		videos = append(videos, resp.Items...)
 	}
 
-	return resources, nil
+	return videos, nil
 }
 
-func (api *YtAPI) makeVideoListRequest(params url.Values) ([]VideoResource, error) {
-	resp, err := api.makeListRequest(apiVideosURL, params)
+func (api *YtAPI) getVideoListResponse(videoIDs, part []string) (*youtube.VideoListResponse, error) {
+	call := api.Videos.List(part)
+	call = call.Id(videoIDs...)
+
+	resp, err := call.Do()
 	if err != nil {
 		return nil, err
 	}
 
-	var resources []VideoResource
-	json.Unmarshal(resp.Items, &resources)
-
-	return resources, nil
-}
-
-func (api *YtAPI) makeListRequest(rawurl string, params url.Values) (APIResponse, error) {
-	url, _ := url.Parse(rawurl)
-	url.RawQuery = params.Encode()
-
-	resp, err := api.Get(url.String())
-	if err != nil {
-		return APIResponse{}, err
-	}
-
-	defer resp.Body.Close()
-
-	var apiResp APIResponse
-	dec := json.NewDecoder(resp.Body)
-	err = dec.Decode(&apiResp)
-
-	return apiResp, err
+	return resp, nil
 }

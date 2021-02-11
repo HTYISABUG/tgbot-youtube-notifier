@@ -87,12 +87,12 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 func (s *Server) subscribe(chat rowChat, channel rowChannel) (string, error) {
 	s.hub.Subscribe(channel.id)
 
-	resource, err := s.yt.GetChannelResource(channel.id)
+	c, err := s.yt.GetChannel(channel.id, []string{"snippet"})
 	if err != nil {
 		return "", err
 	}
 
-	channel.title = resource.Snippet.Title
+	channel.title = c.Snippet.Title
 
 	if err := s.db.subscribe(chat, channel); err != nil {
 		return channel.title, err
@@ -236,20 +236,20 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 		}
 
 		// Request corresponding video resource
-		resource, err := s.yt.GetVideoResource(
+		v, err := s.yt.GetVideo(
 			feed.Entry.VideoID,
 			[]string{"snippet", "liveStreamingDetails"},
 		)
 		if err != nil {
 			log.Println(err)
 			return
-		} else if !resource.IsLiveBroadcast() {
+		} else if !ytapi.IsLiveBroadcast(v) {
 			// If the video is not a live broadcast, then discard.
 			// Also record it as completed.
 			_, err := s.db.Exec(
 				"INSERT INTO videos (id, completed) VALUES (?, ?)"+
 					"ON DUPLICATE KEY UPDATE completed = VALUES(completed);",
-				resource.ID, true,
+				v.Id, true,
 			)
 			if err != nil {
 				log.Println(err)
@@ -257,11 +257,11 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 			return
 		}
 
-		s.sendVideoNotify(resource)
-		s.tryDiligentScheduler(resource)
+		s.sendVideoNotify(v)
+		s.tryDiligentScheduler(v)
 
 		// Update channel title
-		_, err = s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", resource.Snippet.ChannelTitle, resource.Snippet.ChannelID)
+		_, err = s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", v.Snippet.ChannelTitle, v.Snippet.ChannelId)
 		if err != nil {
 			log.Println(err)
 		}
@@ -296,13 +296,13 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 	}
 }
 
-func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
+func (s *Server) sendVideoNotify(video *ytapi.Video) {
 	// Record video infos
-	t, _ := time.Parse(time.RFC3339, resource.LiveStreamingDetails.ScheduledStartTime)
+	t, _ := time.Parse(time.RFC3339, video.LiveStreamingDetails.ScheduledStartTime)
 	_, err := s.db.Exec(
 		"INSERT INTO videos (id, channelID, title, startTime, completed) VALUES (?, ?, ?, ?, ?)"+
 			"ON DUPLICATE KEY UPDATE channelID = VALUES(channelID), title = VALUES(title), startTime = VALUES(startTime);",
-		resource.ID, resource.Snippet.ChannelID, resource.Snippet.Title, t.Unix(), false,
+		video.Id, video.Snippet.ChannelId, video.Snippet.Title, t.Unix(), false,
 	)
 	if err != nil {
 		log.Println(err)
@@ -321,7 +321,7 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 		"SELECT chats.id, chats.admin FROM "+
 			"chats INNER JOIN subscribers ON chats.id = subscribers.chatID "+
 			"WHERE subscribers.channelID = ?;",
-		resource.Snippet.ChannelID,
+		video.Snippet.ChannelId,
 	)
 
 	if err != nil {
@@ -333,14 +333,14 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 	for _, c := range chats {
 		if _, err := s.db.Exec(
 			"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
-			resource.ID, c.id, -1,
+			video.Id, c.id, -1,
 		); err != nil {
 			log.Println(err)
 		}
 	}
 
 	// Query monitoring rows according to video id.
-	mMessages, err := s.db.getMonitoringByVideoID(resource.ID)
+	mMessages, err := s.db.getMonitoringByVideoID(video.Id)
 	if err != nil {
 		log.Println(err)
 		return
@@ -349,7 +349,7 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 	for _, mMsg := range mMessages {
 		if mMsg.messageID == -1 {
 			// If this chat still not being notified, send new notify message.
-			msgConfig := tgbot.NewMessage(mMsg.chatID, newNotifyMessageText(resource))
+			msgConfig := tgbot.NewMessage(mMsg.chatID, newNotifyMessageText(video))
 			message, err := s.tg.Send(msgConfig)
 
 			if err != nil {
@@ -368,7 +368,7 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 			// If this chat has be notified, edit existing notify message.
 			const notModified = "Bad Request: message is not modified"
 
-			editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, newNotifyMessageText(resource))
+			editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, newNotifyMessageText(video))
 			_, err := s.tg.Send(editMsgConfig)
 			if err != nil && !strings.HasPrefix(err.Error(), notModified) {
 				log.Println(err)
@@ -378,15 +378,15 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 	}
 
 	// It's a completed live.
-	if resource.IsCompletedLiveBroadcast() {
+	if ytapi.IsCompletedLiveBroadcast(video) {
 		// Tag it as completed in videos table.
-		_, err := s.db.Exec("UPDATE videos SET completed = ? WHERE id = ?;", true, resource.ID)
+		_, err := s.db.Exec("UPDATE videos SET completed = ? WHERE id = ?;", true, video.Id)
 		if err != nil {
 			log.Println(err)
 		}
 
 		// Remove it from monitoring table.
-		if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", resource.ID); err != nil {
+		if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", video.Id); err != nil {
 			log.Println(err)
 		}
 	}
@@ -394,18 +394,18 @@ func (s *Server) sendVideoNotify(resource ytapi.VideoResource) {
 
 const ytVideoURLPrefix = "https://www.youtube.com/watch?v="
 
-func newNotifyMessageText(resource ytapi.VideoResource) string {
+func newNotifyMessageText(video *ytapi.Video) string {
 	// Create basic info (title, link, channel).
 	basic := fmt.Sprintf(
 		"%s\n%s",
 		tgbot.InlineLink(
-			tgbot.BordText(tgbot.EscapeText(resource.Snippet.Title)),
-			ytVideoURLPrefix+tgbot.EscapeText(resource.ID),
+			tgbot.BordText(tgbot.EscapeText(video.Snippet.Title)),
+			ytVideoURLPrefix+tgbot.EscapeText(video.Id),
 		),
-		tgbot.ItalicText(tgbot.EscapeText(resource.Snippet.ChannelTitle)),
+		tgbot.ItalicText(tgbot.EscapeText(video.Snippet.ChannelTitle)),
 	)
 
-	liveStreamingDetails := resource.LiveStreamingDetails
+	liveStreamingDetails := video.LiveStreamingDetails
 
 	if liveStreamingDetails == nil {
 		return basic

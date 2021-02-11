@@ -57,28 +57,28 @@ func (s *Server) updateNotifies() {
 	}
 
 	// Request video resources from yt api
-	resources, err := s.yt.GetVideoResources(videoIDs, []string{"snippet", "liveStreamingDetails"})
+	videos, err := s.yt.GetVideos(videoIDs, []string{"snippet", "liveStreamingDetails"})
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	for _, r := range resources {
+	for _, v := range videos {
 		// Send or update notifies.
-		go s.sendVideoNotify(r)
+		go s.sendVideoNotify(v)
 
-		s.tryDiligentScheduler(r)
+		s.tryDiligentScheduler(v)
 	}
 }
 
-func (s *Server) tryDiligentScheduler(resource ytapi.VideoResource) {
-	if s.isDiligentCondition(resource) {
-		s.diligentTable[resource.ID] = true
+func (s *Server) tryDiligentScheduler(video *ytapi.Video) {
+	if s.isDiligentCondition(video) {
+		s.diligentTable[video.Id] = true
 
-		t, _ := time.Parse(time.RFC3339, resource.LiveStreamingDetails.ScheduledStartTime)
+		t, _ := time.Parse(time.RFC3339, video.LiveStreamingDetails.ScheduledStartTime)
 		remains := time.Until(t)
 
-		videoID := resource.ID
+		videoID := video.Id
 
 		// Run diligent scheduler
 		time.AfterFunc(getWaitingDuration(remains), func() {
@@ -90,13 +90,13 @@ func (s *Server) tryDiligentScheduler(resource ytapi.VideoResource) {
 	}
 }
 
-func (s *Server) isDiligentCondition(resource ytapi.VideoResource) bool {
-	if resource.IsUpcomingLiveBroadcast() {
-		t, _ := time.Parse(time.RFC3339, resource.LiveStreamingDetails.ScheduledStartTime)
+func (s *Server) isDiligentCondition(v *ytapi.Video) bool {
+	if ytapi.IsUpcomingLiveBroadcast(v) {
+		t, _ := time.Parse(time.RFC3339, v.LiveStreamingDetails.ScheduledStartTime)
 		remains := time.Until(t)
 
 		// Check is remaining time longer than update frequency & not in diligent table
-		if _, ok := s.diligentTable[resource.ID]; remains <= updateFrequency && !ok {
+		if _, ok := s.diligentTable[v.Id]; remains <= updateFrequency && !ok {
 			return true
 		}
 	}
@@ -111,24 +111,24 @@ func (s *Server) diligentScheduler(videoID string) {
 		time.Sleep(time.Second)
 
 		// Get video resource & update notifies.
-		resource, err := s.yt.GetVideoResource(videoID, []string{"snippet", "liveStreamingDetails"})
+		v, err := s.yt.GetVideo(videoID, []string{"snippet", "liveStreamingDetails"})
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		s.sendVideoNotify(resource)
+		s.sendVideoNotify(v)
 
 		// Get remaining time
-		t, _ := time.Parse(time.RFC3339, resource.LiveStreamingDetails.ScheduledStartTime)
+		t, _ := time.Parse(time.RFC3339, v.LiveStreamingDetails.ScheduledStartTime)
 		remains := time.Until(t)
 
 		if remains > updateFrequency {
 			// If still have enough time, stop diligent scheduler.
 			return
-		} else if resource.IsLiveLiveBroadcast() {
+		} else if ytapi.IsLiveLiveBroadcast(v) {
 			// If live already start, stop diligent scheduler & send notifies.
-			mMessages, err := s.db.getMonitoringByVideoID(resource.ID)
+			mMessages, err := s.db.getMonitoringByVideoID(v.Id)
 			if err != nil {
 				log.Println(err)
 				return
@@ -137,10 +137,10 @@ func (s *Server) diligentScheduler(videoID string) {
 			for _, mMsg := range mMessages {
 				msgConfig := tgbot.NewMessage(mMsg.chatID, fmt.Sprintf(
 					"%s\n%s",
-					tgbot.EscapeText(resource.Snippet.ChannelTitle+" is now live!"),
+					tgbot.EscapeText(v.Snippet.ChannelTitle+" is now live!"),
 					tgbot.InlineLink(
-						tgbot.BordText(tgbot.EscapeText(resource.Snippet.Title)),
-						ytVideoURLPrefix+tgbot.EscapeText(resource.ID),
+						tgbot.BordText(tgbot.EscapeText(v.Snippet.Title)),
+						ytVideoURLPrefix+tgbot.EscapeText(v.Id),
 					),
 				))
 				msgConfig.DisableWebPagePreview = true
@@ -159,7 +159,7 @@ func (s *Server) diligentScheduler(videoID string) {
 
 		// WTF, scheduled start time has arrived but live still not started!
 		if remains <= 0 {
-			log.Printf("DEBUG: running " + ytVideoURLPrefix + resource.ID + " tolerance section")
+			log.Printf("DEBUG: running " + ytVideoURLPrefix + v.Id + " tolerance section")
 			log.Printf("DEBUG: already " + (-remains).String() + " has elapsed")
 
 			// Well, lets wait for 1 more minutes.

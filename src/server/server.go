@@ -35,7 +35,6 @@ type Setting struct {
 	CertFile string `json:"ssl_cert"`
 	KeyFile  string `json:"ssl_key"`
 	DBPath   string `json:"database"`
-	YtAPIKey string `json:"yt_api_key"`
 }
 
 // NewServer returns a pointer to a new `Server` object.
@@ -45,7 +44,7 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 		return nil, err
 	}
 
-	yt := ytapi.NewYtAPI(setting.YtAPIKey)
+	yt := ytapi.NewYtAPI()
 
 	db, err := newDatabase(setting.DBPath)
 	if err != nil {
