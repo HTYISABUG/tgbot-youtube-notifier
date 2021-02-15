@@ -2,12 +2,13 @@ package server
 
 import (
 	"fmt"
-	"hub"
 	"log"
 	"net/http"
 	"strings"
-	"tgbot"
-	"ytapi"
+
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/hub"
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
 )
 
 // Server is a main server which integrated all function in this project.

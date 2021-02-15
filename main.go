@@ -7,8 +7,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"server"
 	"time"
+
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/server"
 )
 
 const channelYuuto = "UCSncTY7ruEdF36OoLv-_ZQg"

@@ -4,14 +4,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"hub"
 	"log"
 	"sort"
 	"strconv"
 	"strings"
-	"tgbot"
 	"time"
-	"ytapi"
+
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/hub"
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
 )
 
 func (s *Server) subscribeHandler(update tgbot.Update) {

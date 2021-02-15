@@ -4,9 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"tgbot"
 	"time"
-	"ytapi"
+
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
 )
 
 func (s *Server) initScheduler() {
