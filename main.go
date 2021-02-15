@@ -12,15 +12,14 @@ import (
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/server"
 )
 
-const channelYuuto = "UCSncTY7ruEdF36OoLv-_ZQg"
-
 var httpPort = flag.Int("http_port", 8080, "The port for redirect server to serve from")
 var httpsPort = flag.Int("https_port", 8443, "The port for main server to serve from")
+var settingPath = flag.String("setting", "setting.json", "The path of setting file")
 
 func main() {
 	flag.Parse()
 
-	b, err := ioutil.ReadFile("settings.json")
+	b, err := ioutil.ReadFile(*settingPath)
 	if err != nil {
 		log.Fatalln(err)
 	}
