@@ -2,15 +2,6 @@
 
 ## Requirements
 
-### Libraries
-
-Following are required libraries.
-```shell
-go get -u github.com/dpup/gohubbub
-go get -u github.com/go-telegram-bot-api/telegram-bot-api
-go get -u github.com/go-sql-driver/mysql
-```
-
 ### Setting
 
 A setting `JSON` file is also required.
@@ -21,7 +12,6 @@ A setting `JSON` file is also required.
     "ssl_cert": "<cert file path>",
     "ssl_key": "<key file path>",
     "database": "<database path>",
-    "yt_api_key": "<yt api key>",
 }
 ```
 
