@@ -301,9 +301,10 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 	// Record video infos
 	t, _ := time.Parse(time.RFC3339, video.LiveStreamingDetails.ScheduledStartTime)
 	_, err := s.db.Exec(
-		"INSERT INTO videos (id, channelID, title, startTime, completed) VALUES (?, ?, ?, ?, ?)"+
-			"ON DUPLICATE KEY UPDATE channelID = VALUES(channelID), title = VALUES(title), startTime = VALUES(startTime);",
-		video.Id, video.Snippet.ChannelId, video.Snippet.Title, t.Unix(), false,
+		"INSERT INTO videos (id, title, channelID, channelTitle, startTime, completed) VALUES (?, ?, ?, ?, ?, ?)"+
+			"ON DUPLICATE KEY UPDATE title = VALUES(title), channelID = VALUES(channelID), "+
+			"channelTitle = VALUES(channelTitle), startTime = VALUES(startTime);",
+		video.Id, video.Snippet.Title, video.Snippet.ChannelId, video.Snippet.ChannelTitle, t.Unix(), false,
 	)
 	if err != nil {
 		log.Println(err)
@@ -534,8 +535,8 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 
 	var results []struct {
 		vID, vTitle string
-		vStartTime  int64
 		chTitle     string
+		vStartTime  int64
 	}
 
 	err := s.db.queryResults(
@@ -543,14 +544,13 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 		func(rows *sql.Rows, dest interface{}) error {
 			res := dest.(*struct {
 				vID, vTitle string
-				vStartTime  int64
 				chTitle     string
+				vStartTime  int64
 			})
-			return rows.Scan(&res.vID, &res.vTitle, &res.vStartTime, &res.chTitle)
+			return rows.Scan(&res.vID, &res.vTitle, &res.chTitle, &res.vStartTime)
 		},
-		"SELECT videos.id, videos.title, videos.startTime, channels.title "+
+		"SELECT videos.id, videos.title, videos.channelTitle, videos.startTime "+
 			"FROM monitoring INNER JOIN videos ON monitoring.videoID = videos.id "+
-			"INNER JOIN channels ON channels.id = videos.channelID "+
 			"WHERE monitoring.chatID = ?;",
 		chatID,
 	)
