@@ -15,7 +15,7 @@ type rowSubscriber struct {
 	channelID string
 }
 
-type rowMonitoring struct {
+type rowNotice struct {
 	videoID   string
 	chatID    int64
 	messageID int

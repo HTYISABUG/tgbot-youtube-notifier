@@ -43,7 +43,7 @@ func newDatabase(dataSourceName string) (*database, error) {
 		return nil, err
 	}
 
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS monitoring (" +
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS notices (" +
 		"videoID VARCHAR(255), chatID BIGINT, messageID INT, PRIMARY KEY (videoID, chatID));")
 	if err != nil {
 		return nil, err
@@ -120,16 +120,16 @@ func (db *database) getChannelsByChatID(chatID int64) ([]rowChannel, error) {
 	return channels, nil
 }
 
-func (db *database) getMonitoringByVideoID(videoID string) ([]rowMonitoring, error) {
-	var results []rowMonitoring
+func (db *database) getNoticesByVideoID(videoID string) ([]rowNotice, error) {
+	var results []rowNotice
 
 	err := db.queryResults(
 		&results,
 		func(rows *sql.Rows, dest interface{}) error {
-			r := dest.(*rowMonitoring)
+			r := dest.(*rowNotice)
 			return rows.Scan(&r.videoID, &r.chatID, &r.messageID)
 		},
-		"SELECT videoID, chatID, messageID FROM monitoring WHERE videoID = ?;",
+		"SELECT videoID, chatID, messageID FROM notices WHERE videoID = ?;",
 		videoID,
 	)
 

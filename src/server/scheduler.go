@@ -50,7 +50,7 @@ func (s *Server) updateNotifies() {
 			r := dest.(*string)
 			return rows.Scan(r)
 		},
-		"SELECT DISTINCT videoID FROM monitoring;",
+		"SELECT DISTINCT videoID FROM notices;",
 	)
 
 	if err != nil {
@@ -131,14 +131,14 @@ func (s *Server) diligentScheduler(videoID string) {
 			return
 		} else if ytapi.IsLiveLiveBroadcast(v) {
 			// If live already start, stop diligent scheduler & send notifies.
-			mMessages, err := s.db.getMonitoringByVideoID(v.Id)
+			notices, err := s.db.getNoticesByVideoID(v.Id)
 			if err != nil {
 				glog.Errorln(err)
 				return
 			}
 
-			for _, mMsg := range mMessages {
-				msgConfig := tgbot.NewMessage(mMsg.chatID, fmt.Sprintf(
+			for _, n := range notices {
+				msgConfig := tgbot.NewMessage(n.chatID, fmt.Sprintf(
 					"%s\n%s",
 					tgbot.EscapeText(v.Snippet.ChannelTitle+" is now live!"),
 					tgbot.InlineLink(

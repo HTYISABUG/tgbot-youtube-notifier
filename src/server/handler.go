@@ -306,17 +306,17 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 		// Get video id
 		videoID := strings.Split(feed.DeletedEntry.Ref, ":")[2]
 
-		// Query monitoring rows according to video id.
-		mMessages, err := s.db.getMonitoringByVideoID(videoID)
+		// Query notice rows according to video id.
+		notices, err := s.db.getNoticesByVideoID(videoID)
 		if err != nil {
 			glog.Errorln(err)
 			return
 		}
 
-		// Remove monitoring messages.
-		for _, msg := range mMessages {
-			if msg.messageID != -1 {
-				deleteMsgConfig := tgbot.NewDeleteMessage(msg.chatID, msg.messageID)
+		// Remove notices.
+		for _, n := range notices {
+			if n.messageID != -1 {
+				deleteMsgConfig := tgbot.NewDeleteMessage(n.chatID, n.messageID)
 				_, err := s.tg.DeleteMessage(deleteMsgConfig)
 				if err != nil {
 					switch err.(type) {
@@ -329,8 +329,8 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 			}
 		}
 
-		// Remove deleted video from monitoring table.
-		if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", videoID); err != nil {
+		// Remove deleted video from notices table.
+		if _, err := s.db.Exec("DELETE FROM notices WHERE videoID = ?;", videoID); err != nil {
 			glog.Errorln(err)
 		}
 	} else {
@@ -372,27 +372,27 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 		return
 	}
 
-	// Insert or ignore new rows to monitoring table.
+	// Insert or ignore new rows to notices table.
 	for _, c := range chats {
 		if _, err := s.db.Exec(
-			"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
+			"INSERT IGNORE INTO notices (videoID, chatID, messageID) VALUES (?, ?, ?);",
 			video.Id, c.id, -1,
 		); err != nil {
 			glog.Errorln(err)
 		}
 	}
 
-	// Query monitoring rows according to video id.
-	mMessages, err := s.db.getMonitoringByVideoID(video.Id)
+	// Query notice rows according to video id.
+	notices, err := s.db.getNoticesByVideoID(video.Id)
 	if err != nil {
 		glog.Errorln(err)
 		return
 	}
 
-	for _, mMsg := range mMessages {
-		if mMsg.messageID == -1 {
+	for _, n := range notices {
+		if n.messageID == -1 {
 			// If this chat still not being notified, send new notify message.
-			msgConfig := tgbot.NewMessage(mMsg.chatID, newNotifyMessageText(video))
+			msgConfig := tgbot.NewMessage(n.chatID, newNotifyMessageText(video))
 			message, err := s.tg.Send(msgConfig)
 			if err != nil {
 				switch err.(type) {
@@ -404,10 +404,10 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 				}
 			}
 
-			mMsg.messageID = message.MessageID
+			n.messageID = message.MessageID
 			if _, err := s.db.Exec(
-				"UPDATE monitoring SET messageID = ? WHERE videoID = ? AND chatID = ?;",
-				mMsg.messageID, mMsg.videoID, mMsg.chatID,
+				"UPDATE notices SET messageID = ? WHERE videoID = ? AND chatID = ?;",
+				n.messageID, n.videoID, n.chatID,
 			); err != nil {
 				glog.Errorln(err)
 			}
@@ -415,7 +415,7 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 			// If this chat has be notified, edit existing notify message.
 			const notModified = "Bad Request: message is not modified"
 
-			editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, newNotifyMessageText(video))
+			editMsgConfig := tgbot.NewEditMessageText(n.chatID, n.messageID, newNotifyMessageText(video))
 			_, err := s.tg.Send(editMsgConfig)
 			if err != nil {
 				switch err.(type) {
@@ -428,7 +428,6 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 					glog.Warningln(err)
 				}
 			}
-
 		}
 	}
 
@@ -440,8 +439,8 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 			glog.Errorln(err)
 		}
 
-		// Remove it from monitoring table.
-		if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", video.Id); err != nil {
+		// Remove it from notices table.
+		if _, err := s.db.Exec("DELETE FROM notices WHERE videoID = ?;", video.Id); err != nil {
 			glog.Errorln(err)
 		}
 	}
@@ -558,7 +557,7 @@ func (s *Server) remindHandler(update tgbot.Update) {
 			videoID := url.Query()["v"][0]
 
 			if _, err := s.db.Exec(
-				"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
+				"INSERT IGNORE INTO notices (videoID, chatID, messageID) VALUES (?, ?, ?);",
 				videoID, chatID, -1,
 			); err != nil {
 				glog.Errorln(err)
@@ -617,8 +616,8 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 			return rows.Scan(&res.vID, &res.vTitle, &res.chTitle, &res.vStartTime)
 		},
 		"SELECT videos.id, videos.title, videos.channelTitle, videos.startTime "+
-			"FROM monitoring INNER JOIN videos ON monitoring.videoID = videos.id "+
-			"WHERE monitoring.chatID = ?;",
+			"FROM notices INNER JOIN videos ON notices.videoID = videos.id "+
+			"WHERE notices.chatID = ?;",
 		chatID,
 	)
 
