@@ -1,9 +1,11 @@
 package ytapi
 
 import (
+	"context"
 	"fmt"
 	"log"
 
+	"google.golang.org/api/option"
 	"google.golang.org/api/youtube/v3"
 )
 
@@ -15,9 +17,9 @@ type YtAPI struct {
 const ytIDNumLimit = 50
 
 // NewYtAPI ...
-func NewYtAPI() *YtAPI {
-	client := getClient(youtube.YoutubeReadonlyScope)
-	service, err := youtube.New(client)
+func NewYtAPI(apiKey string) *YtAPI {
+	ctx := context.Background()
+	service, err := youtube.NewService(ctx, option.WithAPIKey(apiKey), option.WithScopes(youtube.YoutubeReadonlyScope))
 	if err != nil {
 		log.Fatalf("Error creating YouTube client: %v", err)
 	}
