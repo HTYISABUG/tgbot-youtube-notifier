@@ -133,12 +133,12 @@ func (s *Server) handlerRelay() {
 			if update.Message != nil && update.Message.Text != "" {
 				elements := strings.Fields(update.Message.Text)
 				switch elements[0] {
-				case "/sub":
-					go s.subscribeHandler(update)
+				case "/add":
+					go s.chAddHandler(update)
 				case "/list":
-					go s.listHandler(update)
-				case "/unsub":
-					go s.unsubscribeHandler(update)
+					go s.chListHandler(update)
+				case "/remove":
+					go s.chRemoveHandler(update)
 				case "/remind":
 					go s.remindHandler(update)
 				case "/schedule":
@@ -146,7 +146,7 @@ func (s *Server) handlerRelay() {
 				}
 			}
 		case feed := <-s.notifyCh:
-			go s.notifyHandler(feed)
+			go s.noticeHandler(feed)
 		}
 	}
 }

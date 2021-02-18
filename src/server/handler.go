@@ -15,7 +15,7 @@ import (
 	"github.com/golang/glog"
 )
 
-func (s *Server) subscribeHandler(update tgbot.Update) {
+func (s *Server) chAddHandler(update tgbot.Update) {
 	elements := strings.Fields(update.Message.Text)
 
 	if len(elements) == 1 {
@@ -116,7 +116,7 @@ func (s *Server) subscribe(chat rowChat, channel rowChannel) (string, error) {
 	return channel.title, nil
 }
 
-func (s *Server) listHandler(update tgbot.Update) {
+func (s *Server) chListHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 
 	channels, err := s.db.getChannelsByChatID(chatID)
@@ -149,7 +149,7 @@ func (s *Server) listHandler(update tgbot.Update) {
 	}
 }
 
-func (s *Server) unsubscribeHandler(update tgbot.Update) {
+func (s *Server) chRemoveHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 	elements := strings.Fields(update.Message.Text)
 
@@ -249,7 +249,7 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 	}
 }
 
-func (s *Server) notifyHandler(feed hub.Feed) {
+func (s *Server) noticeHandler(feed hub.Feed) {
 	if feed.Entry != nil {
 		// If it's a normal entry ...
 
@@ -591,7 +591,7 @@ func (s *Server) remindHandler(update tgbot.Update) {
 
 			entry := hub.Entry{VideoID: videoID}
 
-			go s.notifyHandler(hub.Feed{Entry: &entry})
+			go s.noticeHandler(hub.Feed{Entry: &entry})
 		}
 	}
 }
