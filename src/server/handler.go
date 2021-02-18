@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/hub"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
+	"github.com/golang/glog"
 )
 
 func (s *Server) subscribeHandler(update tgbot.Update) {
@@ -24,8 +24,15 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 			"Please use `\\/sub <channel url\\> \\.\\.\\.` to subscribe\\.",
 		)
 
-		if _, err := s.tg.Send(msgConfig); err != nil {
-			log.Println(err)
+		_, err := s.tg.Send(msgConfig)
+		if err != nil {
+			switch err.(type) {
+			case tgbot.Error:
+				glog.Errorln(err)
+				fmt.Println(msgConfig.Text)
+			default:
+				glog.Warningln(err)
+			}
 		}
 
 		return
@@ -54,7 +61,7 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 			if err == nil {
 				msgTemplate = "%s %s successful."
 			} else {
-				log.Println(err)
+				glog.Warningln(err)
 				msgTemplate = "%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later."
 			}
 			msgTemplate = tgbot.EscapeText(msgTemplate)
@@ -66,7 +73,7 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 			))
 		} else if err != nil {
 			// If valid check failed...
-			log.Println(err)
+			glog.Warningln(err)
 
 			e := tgbot.EscapeText(e)
 			msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Subscribe %s failed, internal server error", e))
@@ -79,8 +86,15 @@ func (s *Server) subscribeHandler(update tgbot.Update) {
 		msgConfig.DisableNotification = true
 		msgConfig.DisableWebPagePreview = true
 
-		if _, err := s.tg.Send(msgConfig); err != nil {
-			log.Println(err)
+		_, err := s.tg.Send(msgConfig)
+		if err != nil {
+			switch err.(type) {
+			case tgbot.Error:
+				glog.Errorln(err)
+				fmt.Println(msgConfig.Text)
+			default:
+				glog.Warningln(err)
+			}
 		}
 	}
 }
@@ -107,7 +121,7 @@ func (s *Server) listHandler(update tgbot.Update) {
 
 	channels, err := s.db.getChannelsByChatID(chatID)
 	if err != nil {
-		log.Println(err)
+		glog.Errorln(err)
 	} else {
 		list := []string{"You already subscribed following channels:"}
 
@@ -121,9 +135,17 @@ func (s *Server) listHandler(update tgbot.Update) {
 		msgConfig := tgbot.NewMessage(chatID, strings.Join(list, "\n"))
 		msgConfig.DisableWebPagePreview = true
 
-		if _, err := s.tg.Send(msgConfig); err != nil {
-			log.Println(err)
+		_, err := s.tg.Send(msgConfig)
+		if err != nil {
+			switch err.(type) {
+			case tgbot.Error:
+				glog.Errorln(err)
+				fmt.Println(msgConfig.Text)
+			default:
+				glog.Warningln(err)
+			}
 		}
+
 	}
 }
 
@@ -139,13 +161,20 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 				"Then use `\\/unsub <number\\> \\.\\.\\.` to unsubscribe\\.",
 		)
 
-		if _, err := s.tg.Send(msgConfig); err != nil {
-			log.Println(err)
+		_, err := s.tg.Send(msgConfig)
+		if err != nil {
+			switch err.(type) {
+			case tgbot.Error:
+				glog.Errorln(err)
+				fmt.Println(msgConfig.Text)
+			default:
+				glog.Warningln(err)
+			}
 		}
 	} else {
 		channels, err := s.db.getChannelsByChatID(chatID)
 		if err != nil {
-			log.Println(err)
+			glog.Errorln(err)
 		} else {
 			list := []string{"You already unsubscribe following channels:"}
 			set := make(map[int64]bool)
@@ -162,7 +191,7 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 			// Run unsubscription
 			for idx := range set {
 				if _, err := s.db.Exec("DELETE FROM subscribers WHERE chatID = ? AND channelID = ?;", chatID, channels[idx].id); err != nil {
-					log.Println(err)
+					glog.Errorln(err)
 					continue
 				}
 
@@ -188,13 +217,13 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 				)
 
 				if err != nil {
-					log.Println(err)
+					glog.Errorln(err)
 					return
 				}
 
 				for _, id := range chIDs {
 					if _, err := s.db.Exec("DELETE FROM channels WHERE id = ?;", id); err != nil {
-						log.Println(err)
+						glog.Errorln(err)
 						continue
 					}
 
@@ -206,8 +235,15 @@ func (s *Server) unsubscribeHandler(update tgbot.Update) {
 			msgConfig := tgbot.NewMessage(chatID, strings.Join(list, "\n"))
 			msgConfig.DisableWebPagePreview = true
 
-			if _, err := s.tg.Send(msgConfig); err != nil {
-				log.Println(err)
+			_, err := s.tg.Send(msgConfig)
+			if err != nil {
+				switch err.(type) {
+				case tgbot.Error:
+					glog.Errorln(err)
+					fmt.Println(msgConfig.Text)
+				default:
+					glog.Warningln(err)
+				}
 			}
 		}
 	}
@@ -221,14 +257,14 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 		var exists bool
 		err := s.db.QueryRow("SELECT EXISTS(SELECT * FROM videos WHERE id = ?);", feed.Entry.VideoID).Scan(&exists)
 		if err != nil && err != sql.ErrNoRows {
-			log.Println(err)
+			glog.Errorln(err)
 			return
 		} else if exists {
 			// If the video already exists, then check if it's completed.
 			var completed bool
 			err := s.db.QueryRow("SELECT completed FROM videos WHERE id = ?;", feed.Entry.VideoID).Scan(&completed)
 			if err != nil && err != sql.ErrNoRows {
-				log.Println(err)
+				glog.Errorln(err)
 				return
 			} else if completed {
 				// If the video already completed, then discard.
@@ -242,7 +278,7 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 			[]string{"snippet", "liveStreamingDetails"},
 		)
 		if err != nil {
-			log.Println(err)
+			glog.Warningln(err)
 			return
 		} else if !ytapi.IsLiveBroadcast(v) {
 			// If the video is not a live broadcast, then discard.
@@ -253,7 +289,7 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 				v.Id, true,
 			)
 			if err != nil {
-				log.Println(err)
+				glog.Errorln(err)
 			}
 			return
 		}
@@ -264,7 +300,7 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 		// Update channel title
 		_, err = s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", v.Snippet.ChannelTitle, v.Snippet.ChannelId)
 		if err != nil {
-			log.Println(err)
+			glog.Errorln(err)
 		}
 	} else if feed.DeletedEntry != nil {
 		// Get video id
@@ -273,7 +309,7 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 		// Query monitoring rows according to video id.
 		mMessages, err := s.db.getMonitoringByVideoID(videoID)
 		if err != nil {
-			log.Println(err)
+			glog.Errorln(err)
 			return
 		}
 
@@ -283,17 +319,22 @@ func (s *Server) notifyHandler(feed hub.Feed) {
 				deleteMsgConfig := tgbot.NewDeleteMessage(msg.chatID, msg.messageID)
 				_, err := s.tg.DeleteMessage(deleteMsgConfig)
 				if err != nil {
-					log.Println(err)
+					switch err.(type) {
+					case tgbot.Error:
+						glog.Errorln(err)
+					default:
+						glog.Warningln(err)
+					}
 				}
 			}
 		}
 
 		// Remove deleted video from monitoring table.
 		if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", videoID); err != nil {
-			log.Println(err)
+			glog.Errorln(err)
 		}
 	} else {
-		log.Println(errors.New("Receive a empty feed"))
+		glog.Warningln(errors.New("Receive a empty feed"))
 	}
 }
 
@@ -307,7 +348,7 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 		video.Id, video.Snippet.Title, video.Snippet.ChannelId, video.Snippet.ChannelTitle, t.Unix(), false,
 	)
 	if err != nil {
-		log.Println(err)
+		glog.Errorln(err)
 		return
 	}
 
@@ -327,7 +368,7 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 	)
 
 	if err != nil {
-		log.Println(err)
+		glog.Errorln(err)
 		return
 	}
 
@@ -337,14 +378,14 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 			"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
 			video.Id, c.id, -1,
 		); err != nil {
-			log.Println(err)
+			glog.Errorln(err)
 		}
 	}
 
 	// Query monitoring rows according to video id.
 	mMessages, err := s.db.getMonitoringByVideoID(video.Id)
 	if err != nil {
-		log.Println(err)
+		glog.Errorln(err)
 		return
 	}
 
@@ -353,18 +394,22 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 			// If this chat still not being notified, send new notify message.
 			msgConfig := tgbot.NewMessage(mMsg.chatID, newNotifyMessageText(video))
 			message, err := s.tg.Send(msgConfig)
-
 			if err != nil {
-				log.Println(err)
-				fmt.Println(msgConfig.Text)
-			} else {
-				mMsg.messageID = message.MessageID
-				if _, err := s.db.Exec(
-					"UPDATE monitoring SET messageID = ? WHERE videoID = ? AND chatID = ?;",
-					mMsg.messageID, mMsg.videoID, mMsg.chatID,
-				); err != nil {
-					log.Println(err)
+				switch err.(type) {
+				case tgbot.Error:
+					glog.Errorln(err)
+					fmt.Println(msgConfig.Text)
+				default:
+					glog.Warningln(err)
 				}
+			}
+
+			mMsg.messageID = message.MessageID
+			if _, err := s.db.Exec(
+				"UPDATE monitoring SET messageID = ? WHERE videoID = ? AND chatID = ?;",
+				mMsg.messageID, mMsg.videoID, mMsg.chatID,
+			); err != nil {
+				glog.Errorln(err)
 			}
 		} else {
 			// If this chat has be notified, edit existing notify message.
@@ -372,10 +417,18 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 
 			editMsgConfig := tgbot.NewEditMessageText(mMsg.chatID, mMsg.messageID, newNotifyMessageText(video))
 			_, err := s.tg.Send(editMsgConfig)
-			if err != nil && !strings.HasPrefix(err.Error(), notModified) {
-				log.Println(err)
-				fmt.Println(editMsgConfig.Text)
+			if err != nil {
+				switch err.(type) {
+				case tgbot.Error:
+					if !strings.HasPrefix(err.Error(), notModified) {
+						glog.Errorln(err)
+						fmt.Println(editMsgConfig.Text)
+					}
+				default:
+					glog.Warningln(err)
+				}
 			}
+
 		}
 	}
 
@@ -384,12 +437,12 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 		// Tag it as completed in videos table.
 		_, err := s.db.Exec("UPDATE videos SET completed = ? WHERE id = ?;", true, video.Id)
 		if err != nil {
-			log.Println(err)
+			glog.Errorln(err)
 		}
 
 		// Remove it from monitoring table.
 		if _, err := s.db.Exec("DELETE FROM monitoring WHERE videoID = ?;", video.Id); err != nil {
-			log.Println(err)
+			glog.Errorln(err)
 		}
 	}
 }
@@ -483,8 +536,15 @@ func (s *Server) remindHandler(update tgbot.Update) {
 			"Please use `\\/remind <video url\\> \\.\\.\\.` to set video reminder\\.",
 		)
 
-		if _, err := s.tg.Send(msgConfig); err != nil {
-			log.Println(err)
+		_, err := s.tg.Send(msgConfig)
+		if err != nil {
+			switch err.(type) {
+			case tgbot.Error:
+				glog.Errorln(err)
+				fmt.Println(msgConfig.Text)
+			default:
+				glog.Warningln(err)
+			}
 		}
 
 		return
@@ -501,7 +561,7 @@ func (s *Server) remindHandler(update tgbot.Update) {
 				"INSERT IGNORE INTO monitoring (videoID, chatID, messageID) VALUES (?, ?, ?);",
 				videoID, chatID, -1,
 			); err != nil {
-				log.Println(err)
+				glog.Errorln(err)
 
 				msgTemplate := "%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later."
 				msgTemplate = tgbot.EscapeText(msgTemplate)
@@ -516,8 +576,15 @@ func (s *Server) remindHandler(update tgbot.Update) {
 				msgConfig.DisableNotification = true
 				msgConfig.DisableWebPagePreview = true
 
-				if _, err := s.tg.Send(msgConfig); err != nil {
-					log.Println(err)
+				_, err := s.tg.Send(msgConfig)
+				if err != nil {
+					switch err.(type) {
+					case tgbot.Error:
+						glog.Errorln(err)
+						fmt.Println(msgConfig.Text)
+					default:
+						glog.Warningln(err)
+					}
 				}
 
 				continue
@@ -556,7 +623,7 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 	)
 
 	if err != nil {
-		log.Println(err)
+		glog.Errorln(err)
 		return
 	}
 
@@ -594,7 +661,12 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 
 	_, err = s.tg.Send(msgConfig)
 	if err != nil {
-		log.Println(err)
-		fmt.Println(msgConfig.Text)
+		switch err.(type) {
+		case tgbot.Error:
+			glog.Errorln(err)
+			fmt.Println(msgConfig.Text)
+		default:
+			glog.Warningln(err)
+		}
 	}
 }

@@ -4,35 +4,37 @@ import (
 	"encoding/json"
 	"flag"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/signal"
 	"time"
 
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/server"
+	"github.com/golang/glog"
 )
 
 var httpPort = flag.Int("http_port", 8080, "The port for redirect server to serve from")
 var httpsPort = flag.Int("https_port", 8443, "The port for main server to serve from")
 var settingPath = flag.String("setting", "setting.json", "The path of setting file")
 
-func main() {
+func init() {
 	flag.Parse()
+	glog.CopyStandardLogTo("INFO")
+}
 
+func main() {
 	b, err := ioutil.ReadFile(*settingPath)
 	if err != nil {
-		log.Fatalln(err)
+		glog.Fatalln(err)
 	}
 
 	var setting server.Setting
 	if err := json.Unmarshal(b, &setting); err != nil {
-		log.Fatalln(err)
+		glog.Fatalln(err)
 	}
 
 	server, err := server.NewServer(setting, *httpPort, *httpsPort)
-
 	if err != nil {
-		log.Fatalln(err)
+		glog.Fatalln(err)
 	}
 
 	// Handle SIGINT to cleanup program
@@ -40,12 +42,12 @@ func main() {
 	signal.Notify(signalCh, os.Interrupt)
 	go func() {
 		<-signalCh
-		log.Println("Graceful shutdown server...")
+		glog.Infoln("Graceful shutdown server...")
 		server.Close()
 
 		time.Sleep(time.Second * 5)
 
-		log.Println("Goodbye")
+		glog.Infoln("Goodbye")
 		os.Exit(0)
 	}()
 

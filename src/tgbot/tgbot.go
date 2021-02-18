@@ -81,3 +81,6 @@ func NewDeleteMessage(chatID int64, messageID int) DeleteMessageConfig {
 
 // UpdatesChannel is the channel for getting updates.
 type UpdatesChannel = api.UpdatesChannel
+
+// Error is an error containing extra information returned by the Telegram API.
+type Error = api.Error

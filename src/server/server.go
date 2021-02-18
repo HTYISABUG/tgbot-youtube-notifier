@@ -2,13 +2,13 @@ package server
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/hub"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
+	"github.com/golang/glog"
 )
 
 // Server is a main server which integrated all function in this project.
@@ -80,7 +80,7 @@ func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 	// Recover all subscribed channels
 	channels, err := s.db.getChannels()
 	if err != nil {
-		log.Fatalln(err)
+		glog.Fatalln(err)
 	}
 
 	for _, ch := range channels {
@@ -98,14 +98,14 @@ func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 
 	// Since WebSub library can only send http link,
 	// we need a redirect server to redirect request to TLS server.
-	log.Println("Starting HTTP redirect server on port", s.httpPort)
 	go func() {
-		log.Fatalln(http.ListenAndServe(fmt.Sprintf(":%d", s.httpPort), http.HandlerFunc(s.redirectTLS)))
+		glog.Infoln("Starting HTTP redirect server on port", s.httpPort)
+		glog.Fatalln(http.ListenAndServe(fmt.Sprintf(":%d", s.httpPort), http.HandlerFunc(s.redirectTLS)))
 	}()
 
 	// Start TLS server
-	log.Println("Starting HTTPS server on port", s.httpsPort)
-	log.Fatalln(http.ListenAndServeTLS(fmt.Sprintf(":%d", s.httpsPort), certFile, keyFile, s.serveMux))
+	glog.Infoln("Starting HTTPS server on port", s.httpsPort)
+	glog.Fatalln(http.ListenAndServeTLS(fmt.Sprintf(":%d", s.httpsPort), certFile, keyFile, s.serveMux))
 }
 
 func (s *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +118,7 @@ func (s *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Close() {
 	channels, err := s.db.getChannels()
 	if err != nil {
-		log.Fatalln(err)
+		glog.Fatalln(err)
 	}
 
 	for _, ch := range channels {

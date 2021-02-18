@@ -3,11 +3,12 @@ package server
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
+	"github.com/golang/glog"
+	"google.golang.org/api/youtube/v3"
 )
 
 func (s *Server) initScheduler() {
@@ -53,22 +54,23 @@ func (s *Server) updateNotifies() {
 	)
 
 	if err != nil {
-		log.Println(err)
+		glog.Errorln(err)
 		return
 	}
 
 	// Request video resources from yt api
 	videos, err := s.yt.GetVideos(videoIDs, []string{"snippet", "liveStreamingDetails"})
 	if err != nil {
-		log.Println(err)
+		glog.Warningln(err)
 		return
 	}
 
 	for _, v := range videos {
 		// Send or update notifies.
-		go s.sendVideoNotify(v)
-
-		s.tryDiligentScheduler(v)
+		go func(v *youtube.Video) {
+			s.sendVideoNotify(v)
+			s.tryDiligentScheduler(v)
+		}(v)
 	}
 }
 
@@ -106,7 +108,7 @@ func (s *Server) isDiligentCondition(v *ytapi.Video) bool {
 }
 
 func (s *Server) diligentScheduler(videoID string) {
-	log.Printf("DEBUG: running " + ytVideoURLPrefix + videoID + " diligent scheduler")
+	glog.Infoln("Running " + ytVideoURLPrefix + videoID + " diligent scheduler")
 
 	for {
 		time.Sleep(time.Second)
@@ -114,7 +116,7 @@ func (s *Server) diligentScheduler(videoID string) {
 		// Get video resource & update notifies.
 		v, err := s.yt.GetVideo(videoID, []string{"snippet", "liveStreamingDetails"})
 		if err != nil {
-			log.Println(err)
+			glog.Warningln(err)
 			return
 		}
 
@@ -131,7 +133,7 @@ func (s *Server) diligentScheduler(videoID string) {
 			// If live already start, stop diligent scheduler & send notifies.
 			mMessages, err := s.db.getMonitoringByVideoID(v.Id)
 			if err != nil {
-				log.Println(err)
+				glog.Errorln(err)
 				return
 			}
 
@@ -148,8 +150,13 @@ func (s *Server) diligentScheduler(videoID string) {
 
 				_, err := s.tg.Send(msgConfig)
 				if err != nil {
-					log.Println(err)
-					fmt.Println(msgConfig.Text)
+					switch err.(type) {
+					case tgbot.Error:
+						glog.Errorln(err)
+						fmt.Println(msgConfig.Text)
+					default:
+						glog.Warningln(err)
+					}
 				}
 			}
 
@@ -160,8 +167,10 @@ func (s *Server) diligentScheduler(videoID string) {
 
 		// WTF, scheduled start time has arrived but live still not started!
 		if remains <= 0 {
-			log.Printf("DEBUG: running " + ytVideoURLPrefix + v.Id + " tolerance section")
-			log.Printf("DEBUG: already " + (-remains).String() + " has elapsed")
+			if (-remains)%30*time.Minute == 0 {
+				glog.Warningln("Running " + ytVideoURLPrefix + v.Id + " tolerance section")
+				glog.Warningln("Already " + (-remains).String() + " has elapsed")
+			}
 
 			// Well, lets wait for 1 more minutes.
 			time.Sleep(1 * time.Minute)

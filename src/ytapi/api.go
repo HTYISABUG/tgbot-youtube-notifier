@@ -3,8 +3,8 @@ package ytapi
 import (
 	"context"
 	"fmt"
-	"log"
 
+	"github.com/golang/glog"
 	"google.golang.org/api/option"
 	"google.golang.org/api/youtube/v3"
 )
@@ -21,7 +21,7 @@ func NewYtAPI(apiKey string) *YtAPI {
 	ctx := context.Background()
 	service, err := youtube.NewService(ctx, option.WithAPIKey(apiKey), option.WithScopes(youtube.YoutubeReadonlyScope))
 	if err != nil {
-		log.Fatalf("Error creating YouTube client: %v", err)
+		glog.Fatalln("Error creating YouTube client:", err)
 	}
 
 	return &YtAPI{service}
