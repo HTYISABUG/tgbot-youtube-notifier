@@ -61,3 +61,13 @@ func (s *Server) isValidYtVideo(rawurl string) (bool, error) {
 
 	return false, nil
 }
+
+func containsAny(s string, substrs []string) bool {
+	for _, sub := range substrs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+
+	return false
+}

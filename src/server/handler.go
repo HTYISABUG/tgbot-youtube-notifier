@@ -21,7 +21,7 @@ func (s *Server) chAddHandler(update tgbot.Update) {
 	if len(elements) == 1 {
 		msgConfig := tgbot.NewMessage(
 			update.Message.Chat.ID,
-			"Please use `\\/sub <channel url\\> \\.\\.\\.` to subscribe\\.",
+			"Please use `\\/add <channel url\\> \\.\\.\\.` to subscribe\\.",
 		)
 
 		_, err := s.tg.Send(msgConfig)
@@ -158,7 +158,7 @@ func (s *Server) chRemoveHandler(update tgbot.Update) {
 			chatID,
 			"Please use /list to find the channel numbers "+
 				"which you want to unsubscribe\\. "+
-				"Then use `\\/unsub <number\\> \\.\\.\\.` to unsubscribe\\.",
+				"Then use `\\/remove <number\\> \\.\\.\\.` to unsubscribe\\.",
 		)
 
 		_, err := s.tg.Send(msgConfig)
@@ -374,6 +374,14 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 
 	// Insert or ignore new rows to notices table.
 	for _, c := range chats {
+		b, err := s.applyFilters(c.id, video)
+		if err != nil {
+			glog.Errorln(err)
+			continue
+		} else if !b { // No pass
+			continue
+		}
+
 		if _, err := s.db.Exec(
 			"INSERT IGNORE INTO notices (videoID, chatID, messageID) VALUES (?, ?, ?);",
 			video.Id, c.id, -1,
@@ -444,6 +452,45 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 			glog.Errorln(err)
 		}
 	}
+}
+
+func (s *Server) applyFilters(chatID int64, video *ytapi.Video) (bool, error) {
+	type rowFilter struct {
+		block   bool
+		content string
+	}
+
+	var err error
+	var filters []rowFilter
+
+	err = s.db.queryResults(
+		&filters,
+		func(rows *sql.Rows, dest interface{}) error {
+			filter := dest.(*rowFilter)
+			return rows.Scan(&filter.block, &filter.content)
+		},
+		"SELECT block, content FROM filters WHERE chatID = ? AND channelID = ?;",
+		chatID, video.Snippet.ChannelId,
+	)
+
+	if err != nil {
+		return false, err
+	}
+
+	title := strings.ToLower(video.Snippet.Title)
+
+	for _, f := range filters {
+		if f.content != "" {
+			words := strings.Split(f.content, ",")
+
+			if f.block == containsAny(title, words) {
+				glog.Infof("Apply filter {chatID: %v\tblock: %v\tcontent:%v}", chatID, f.block, f.content)
+				return false, nil
+			}
+		}
+	}
+
+	return true, nil
 }
 
 const ytVideoURLPrefix = "https://www.youtube.com/watch?v="
@@ -659,6 +706,199 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 	msgConfig.DisableWebPagePreview = true
 
 	_, err = s.tg.Send(msgConfig)
+	if err != nil {
+		switch err.(type) {
+		case tgbot.Error:
+			glog.Errorln(err)
+			fmt.Println(msgConfig.Text)
+		default:
+			glog.Warningln(err)
+		}
+	}
+}
+
+func (s *Server) filterHandler(update tgbot.Update) {
+	chatID := update.Message.Chat.ID
+	elements := strings.Fields(update.Message.Text)
+
+	if len(elements) == 1 {
+		msgConfig := tgbot.NewMessage(
+			chatID,
+			fmt.Sprintf(
+				"Please use `%s` to set filter\\.",
+				tgbot.EscapeText("/filter [-show] [-blacklist <word> ...] [-whitelist <word> ...] <channel url>"),
+			),
+		)
+
+		_, err := s.tg.Send(msgConfig)
+		if err != nil {
+			switch err.(type) {
+			case tgbot.Error:
+				glog.Errorln(err)
+				fmt.Println(msgConfig.Text)
+			default:
+				glog.Warningln(err)
+			}
+		}
+
+		return
+	}
+
+	var show bool = func() bool {
+		for i, e := range elements {
+			if e == "-show" {
+				elements = append(elements[:i], elements[i+1:]...)
+				return true
+			}
+		}
+		return false
+	}()
+
+	var channel string
+	var blacklist, whitelist []string
+	var container *[]string
+
+	for i := 1; i < len(elements)-1; i++ {
+		switch elements[i] {
+		case "-blacklist":
+			container = &blacklist
+		case "-whitelist":
+			container = &whitelist
+		default:
+			if container == nil {
+				channel = elements[i]
+			} else {
+				*container = append(*container, strings.ToLower(elements[i]))
+			}
+		}
+	}
+
+	if channel == "" {
+		channel = elements[len(elements)-1]
+	} else {
+		*container = append(*container, elements[len(elements)-1])
+	}
+
+	var msgConfig tgbot.MessageConfig
+
+	if b, err := isValidYtChannel(channel); err == nil && b {
+		// If channel is a valid yt channel...
+		_, url, _ := followRedirectURL(channel)
+		channelID := strings.Split(url.Path, "/")[2]
+
+		var chTitle string
+		err := s.db.QueryRow("SELECT title FROM channels WHERE id = ?;", channelID).Scan(&chTitle)
+		if err != nil {
+			channel = tgbot.EscapeText(channel)
+			if err == sql.ErrNoRows {
+				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("You have not subscribed to %s", channel))
+			} else {
+				glog.Errorln(err)
+				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
+			}
+		} else {
+			// If Show only
+			if show {
+				type rowFilter struct {
+					block   bool
+					content string
+				}
+
+				var err error
+				var filters []rowFilter
+
+				err = s.db.queryResults(
+					&filters,
+					func(rows *sql.Rows, dest interface{}) error {
+						filter := dest.(*rowFilter)
+						return rows.Scan(&filter.block, &filter.content)
+					},
+					"SELECT block, content FROM filters WHERE chatID = ? AND channelID = ?;",
+					chatID, channelID,
+				)
+
+				if err != nil {
+					glog.Errorln(err)
+					channel := tgbot.EscapeText(channel)
+					msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter show on %s failed, internal server error", channel))
+					goto FILTERHANDLER_SEND_MESSAGE
+				}
+
+				var black, white string
+				for _, f := range filters {
+					if f.block {
+						black = f.content
+					} else {
+						white = f.content
+					}
+				}
+
+				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf(
+					"%s\n\n_blacklist:_\n%s\n\n_whitelist:_\n%s",
+					tgbot.InlineLink(
+						tgbot.EscapeText(chTitle),
+						tgbot.EscapeText(channel),
+					),
+					tgbot.EscapeText(black),
+					tgbot.EscapeText(white),
+				))
+
+				goto FILTERHANDLER_SEND_MESSAGE
+			}
+
+			// Regular add filter
+			_, err := s.db.Exec(
+				"INSERT INTO filters (chatID, channelID, block, content) VALUES(?, ?, ?, ?) "+
+					"ON DUPLICATE KEY UPDATE content = VALUES(content);",
+				chatID, channelID, true, strings.Join(blacklist, ","),
+			)
+
+			if err != nil {
+				glog.Errorln(err)
+				channel := tgbot.EscapeText(channel)
+				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
+				goto FILTERHANDLER_SEND_MESSAGE
+			}
+
+			_, err = s.db.Exec(
+				"INSERT INTO filters (chatID, channelID, block, content) VALUES(?, ?, ?, ?) "+
+					"ON DUPLICATE KEY UPDATE content = VALUES(content);",
+				chatID, channelID, false, strings.Join(whitelist, ","),
+			)
+
+			if err != nil {
+				glog.Errorln(err)
+				channel := tgbot.EscapeText(channel)
+				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
+				goto FILTERHANDLER_SEND_MESSAGE
+			}
+
+			msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf(
+				"%s\n\n_blacklist:_\n%s\n\n_whitelist:_\n%s",
+				tgbot.InlineLink(
+					tgbot.EscapeText(chTitle),
+					tgbot.EscapeText(channel),
+				),
+				tgbot.EscapeText(strings.Join(blacklist, ",")),
+				tgbot.EscapeText(strings.Join(whitelist, ",")),
+			))
+		}
+	} else if err != nil {
+		// If valid check failed...
+		glog.Warningln(err)
+		channel := tgbot.EscapeText(channel)
+		msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
+	} else if !b {
+		// If channel isn't a valid yt channel...
+		channel := tgbot.EscapeText(channel)
+		msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("%s is not a valid YouTube channel", channel))
+	}
+
+FILTERHANDLER_SEND_MESSAGE:
+	msgConfig.DisableNotification = true
+	msgConfig.DisableWebPagePreview = true
+
+	_, err := s.tg.Send(msgConfig)
 	if err != nil {
 		switch err.(type) {
 		case tgbot.Error:
