@@ -172,14 +172,14 @@ func (s *Server) diligentScheduler(videoID string) {
 				glog.Warningln("Already " + (-remains).String() + " has elapsed")
 			}
 
-			// Well, lets wait for 1 more minutes.
-			time.Sleep(1 * time.Minute)
+			// Well, lets wait for 30 more seconds.
+			time.Sleep(30 * time.Second)
 		}
 	}
 }
 
 func getWaitingDuration(t time.Duration) time.Duration {
-	var interval = [...]time.Duration{30 * time.Minute, 15 * time.Minute, 5 * time.Minute, 0}
+	var interval = [...]time.Duration{30 * time.Minute, 15 * time.Minute, 5 * time.Minute, 1 * time.Minute, 10 * time.Second, 0}
 
 	for _, v := range interval {
 		if t > v {
