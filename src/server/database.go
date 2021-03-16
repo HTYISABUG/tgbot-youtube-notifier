@@ -31,7 +31,7 @@ func newDatabase(dataSourceName string) (*database, error) {
 
 	// Create table to save subscribing chat data
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS chats (" +
-		"id BIGINT PRIMARY KEY, admin BOOL DEFAULT 0);")
+		"id BIGINT PRIMARY KEY);")
 	if err != nil {
 		return nil, err
 	}

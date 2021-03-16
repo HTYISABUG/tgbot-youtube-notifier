@@ -6,8 +6,7 @@ type rowChannel struct {
 }
 
 type rowChat struct {
-	id    int64
-	admin bool
+	id int64
 }
 
 type rowSubscriber struct {

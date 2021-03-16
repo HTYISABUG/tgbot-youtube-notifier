@@ -359,9 +359,9 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 		&chats,
 		func(rows *sql.Rows, dest interface{}) error {
 			r := dest.(*rowChat)
-			return rows.Scan(&r.id, &r.admin)
+			return rows.Scan(&r.id)
 		},
-		"SELECT chats.id, chats.admin FROM "+
+		"SELECT chats.id FROM "+
 			"chats INNER JOIN subscribers ON chats.id = subscribers.chatID "+
 			"WHERE subscribers.channelID = ?;",
 		video.Snippet.ChannelId,
