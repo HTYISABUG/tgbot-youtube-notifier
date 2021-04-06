@@ -1,12 +1,16 @@
 package server
 
+import "database/sql"
+
 type rowChannel struct {
 	id    string
 	title string
 }
 
 type rowChat struct {
-	id int64
+	id         int64
+	downloader sql.NullString
+	token      sql.NullString
 }
 
 type rowSubscriber struct {

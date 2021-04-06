@@ -11,6 +11,8 @@ import (
 	"google.golang.org/api/youtube/v3"
 )
 
+const updateFrequency = time.Hour
+
 func (s *Server) initScheduler() {
 	// Update all notifies first.
 	s.updateNotifies()
@@ -18,8 +20,8 @@ func (s *Server) initScheduler() {
 	// Get initial waiting duration.
 	now := time.Now()
 	next := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location())
-	if now.After(next) {
-		next = next.Add(time.Hour)
+	for now.After(next) {
+		next = next.Add(updateFrequency)
 	}
 	dur := next.Sub(now)
 
@@ -28,8 +30,6 @@ func (s *Server) initScheduler() {
 		go s.regularScheduler()
 	})
 }
-
-const updateFrequency = time.Hour
 
 func (s *Server) regularScheduler() {
 	for {
