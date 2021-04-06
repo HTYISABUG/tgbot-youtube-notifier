@@ -148,16 +148,7 @@ func (s *Server) diligentScheduler(videoID string) {
 				))
 				msgConfig.DisableWebPagePreview = true
 
-				_, err := s.tg.Send(msgConfig)
-				if err != nil {
-					switch err.(type) {
-					case tgbot.Error:
-						glog.Errorln(err)
-						fmt.Println(msgConfig.Text)
-					default:
-						glog.Warningln(err)
-					}
-				}
+				s.tgSend(msgConfig)
 			}
 
 			return

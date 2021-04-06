@@ -84,3 +84,6 @@ type UpdatesChannel = api.UpdatesChannel
 
 // Error is an error containing extra information returned by the Telegram API.
 type Error = api.Error
+
+// Chattable is any config type that can be sent.
+type Chattable = api.Chattable

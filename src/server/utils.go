@@ -36,11 +36,7 @@ func isValidYtChannel(rawurl string) (bool, error) {
 		return false, err
 	}
 
-	if ok && url.Host == ytHost && strings.HasPrefix(url.Path, "/channel") {
-		return true, nil
-	}
-
-	return false, nil
+	return ok && url.Host == ytHost && strings.HasPrefix(url.Path, "/channel"), nil
 }
 
 func (s *Server) isValidYtVideo(rawurl string) (bool, error) {

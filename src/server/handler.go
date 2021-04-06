@@ -15,140 +15,116 @@ import (
 	"github.com/golang/glog"
 )
 
+// chAddHandler handles channel subscribe request.
 func (s *Server) chAddHandler(update tgbot.Update) {
+	chatID := update.Message.Chat.ID
 	elements := strings.Fields(update.Message.Text)
 
+	// Command with out parameters.
 	if len(elements) == 1 {
 		msgConfig := tgbot.NewMessage(
-			update.Message.Chat.ID,
-			"Please use `\\/add <channel url\\> \\.\\.\\.` to subscribe\\.",
+			chatID,
+			"Please use "+tgbot.InlineCode("/add <channel url> ...")+" to subscribe\\.",
 		)
 
-		_, err := s.tg.Send(msgConfig)
-		if err != nil {
-			switch err.(type) {
-			case tgbot.Error:
-				glog.Errorln(err)
-				fmt.Println(msgConfig.Text)
-			default:
-				glog.Warningln(err)
-			}
-		}
-
+		s.tgSend(msgConfig)
 		return
 	}
 
-	chatID := update.Message.Chat.ID
-
+	// Loop over every parameters.
 	for _, e := range elements[1:] {
+		var title string = e
+		var msgTemplate string
 		var msgConfig tgbot.MessageConfig
 
+		// Validation url parameter.
 		if b, err := isValidYtChannel(e); err == nil && b {
 			// If e is a valid yt channel...
 			_, url, _ := followRedirectURL(e)
 			channelID := strings.Split(url.Path, "/")[2]
 
-			// Run subscription & get channel title
-			title, err := s.subscribe(rowChat{id: chatID}, rowChannel{id: channelID})
-			if title == "" {
-				title = channelID
-			}
-
-			channelID = tgbot.EscapeText(channelID)
-			title = tgbot.EscapeText(title)
-
-			var msgTemplate string
-			if err == nil {
-				msgTemplate = "%s %s successful."
+			// Get channel snippet from YouTube.
+			c, err := s.yt.GetChannel(channelID, []string{"snippet"})
+			if err != nil {
+				switch err.(type) {
+				case ytapi.InvalidChannelIDError:
+					msgTemplate = "%s %s failed.\n" + fmt.Sprintf("Invalid channel ID: %s.", channelID)
+				default:
+					glog.Warningln(err)
+					msgTemplate = "%s %s failed.\nInternal server error."
+				}
 			} else {
-				glog.Warningln(err)
-				msgTemplate = "%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later."
+				title = c.Snippet.Title
+				// Insert into database.
+				if err := s.db.subscribe(rowChat{id: chatID}, rowChannel{id: c.Id, title: c.Snippet.Title}); err != nil {
+					glog.Warningln(err)
+					msgTemplate = "%s %s failed.\nInternal server error."
+				}
 			}
-			msgTemplate = tgbot.EscapeText(msgTemplate)
 
+			// Run subscription
+			if msgTemplate == "" {
+				s.hub.Subscribe(c.Id)
+				msgTemplate = "%s %s successful."
+			}
+
+			title = tgbot.EscapeText(title)
+			msgTemplate = tgbot.EscapeText(msgTemplate)
 			msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf(
 				msgTemplate,
 				tgbot.ItalicText(tgbot.BordText("Subscribe")),
-				tgbot.InlineLink(title, "https://www.youtube.com/channel/"+channelID),
+				tgbot.InlineLink(title, e),
 			))
 		} else if err != nil {
 			// If valid check failed...
 			glog.Warningln(err)
-
-			e := tgbot.EscapeText(e)
-			msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Subscribe %s failed, internal server error", e))
+			msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf(
+				"Subscribe %s failed, internal server error",
+				tgbot.EscapeText(e),
+			))
 		} else if !b {
 			// If e isn't a valid yt channel...
-			e := tgbot.EscapeText(e)
-			msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("%s is not a valid YouTube channel", e))
+			msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf(
+				"%s is not a valid YouTube channel",
+				tgbot.EscapeText(e),
+			))
 		}
 
 		msgConfig.DisableNotification = true
 		msgConfig.DisableWebPagePreview = true
 
-		_, err := s.tg.Send(msgConfig)
-		if err != nil {
-			switch err.(type) {
-			case tgbot.Error:
-				glog.Errorln(err)
-				fmt.Println(msgConfig.Text)
-			default:
-				glog.Warningln(err)
-			}
-		}
+		s.tgSend(msgConfig)
 	}
 }
 
-func (s *Server) subscribe(chat rowChat, channel rowChannel) (string, error) {
-	s.hub.Subscribe(channel.id)
-
-	c, err := s.yt.GetChannel(channel.id, []string{"snippet"})
-	if err != nil {
-		return "", err
-	}
-
-	channel.title = c.Snippet.Title
-
-	if err := s.db.subscribe(chat, channel); err != nil {
-		return channel.title, err
-	}
-
-	return channel.title, nil
-}
-
+// chListHandler handles list subscribed channels request.
 func (s *Server) chListHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 
+	var msgConfig tgbot.MessageConfig
 	channels, err := s.db.getChannelsByChatID(chatID)
 	if err != nil {
 		glog.Errorln(err)
+		msgConfig = tgbot.NewMessage(chatID, "Can not list subscribed channels.\nInternal server error.")
 	} else {
 		list := []string{"You already subscribed following channels:"}
 
 		for i, ch := range channels {
-			chID := tgbot.EscapeText(ch.id)
-			chTitle := tgbot.EscapeText(ch.title)
-			chLink := tgbot.InlineLink(chTitle, "https://www.youtube.com/channel/"+chID)
+			chLink := tgbot.InlineLink(
+				tgbot.EscapeText(ch.title),
+				"https://www.youtube.com/channel/"+ch.id,
+			)
 			list = append(list, fmt.Sprintf("%2d\\|\t%s", i, chLink))
 		}
 
-		msgConfig := tgbot.NewMessage(chatID, strings.Join(list, "\n"))
+		msgConfig = tgbot.NewMessage(chatID, strings.Join(list, "\n"))
 		msgConfig.DisableWebPagePreview = true
-
-		_, err := s.tg.Send(msgConfig)
-		if err != nil {
-			switch err.(type) {
-			case tgbot.Error:
-				glog.Errorln(err)
-				fmt.Println(msgConfig.Text)
-			default:
-				glog.Warningln(err)
-			}
-		}
-
 	}
+
+	s.tgSend(msgConfig)
 }
 
+// chRemoveHandler handles channel unsubscribe request.
 func (s *Server) chRemoveHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 	elements := strings.Fields(update.Message.Text)
@@ -156,103 +132,86 @@ func (s *Server) chRemoveHandler(update tgbot.Update) {
 	if len(elements) == 1 {
 		msgConfig := tgbot.NewMessage(
 			chatID,
-			"Please use /list to find the channel numbers "+
-				"which you want to unsubscribe\\. "+
-				"Then use `\\/remove <number\\> \\.\\.\\.` to unsubscribe\\.",
+			"Please use /list to find the channel numbers which you want to unsubscribe\\. "+
+				"Then use "+tgbot.InlineCode("/remove <number> ...")+" to unsubscribe\\.",
 		)
 
-		_, err := s.tg.Send(msgConfig)
-		if err != nil {
-			switch err.(type) {
-			case tgbot.Error:
-				glog.Errorln(err)
-				fmt.Println(msgConfig.Text)
-			default:
-				glog.Warningln(err)
-			}
-		}
-	} else {
-		channels, err := s.db.getChannelsByChatID(chatID)
-		if err != nil {
-			glog.Errorln(err)
-		} else {
-			list := []string{"You already unsubscribe following channels:"}
-			set := make(map[int64]bool)
-
-			// Get not repeating channel indices
-			for _, i := range elements[1:] {
-				idx, err := strconv.ParseInt(i, 10, 64)
-				if err != nil || idx >= int64(len(channels)) {
-					continue
-				}
-				set[idx] = true
-			}
-
-			// Run unsubscription
-			for idx := range set {
-				if _, err := s.db.Exec("DELETE FROM subscribers WHERE chatID = ? AND channelID = ?;", chatID, channels[idx].id); err != nil {
-					glog.Errorln(err)
-					continue
-				}
-
-				chID := tgbot.EscapeText(channels[idx].id)
-				chTitle := tgbot.EscapeText(channels[idx].title)
-				chLink := tgbot.InlineLink(chTitle, "https://www.youtube.com/channel/"+chID)
-				list = append(list, chLink)
-			}
-
-			// Check not subscribed channels & unsubscribe them from hub
-			go func() {
-				var chIDs []string
-
-				err := s.db.queryResults(
-					&chIDs,
-					func(rows *sql.Rows, dest interface{}) error {
-						r := dest.(*string)
-						return rows.Scan(r)
-					},
-					"SELECT channels.id FROM "+
-						"channels LEFT JOIN subscribers ON channels.id = subscribers.channelID "+
-						"WHERE subscribers.chatID IS NULL;",
-				)
-
-				if err != nil {
-					glog.Errorln(err)
-					return
-				}
-
-				for _, id := range chIDs {
-					if _, err := s.db.Exec("DELETE FROM channels WHERE id = ?;", id); err != nil {
-						glog.Errorln(err)
-						continue
-					}
-
-					s.hub.Unsubscribe(id)
-				}
-			}()
-
-			// Send message
-			msgConfig := tgbot.NewMessage(chatID, strings.Join(list, "\n"))
-			msgConfig.DisableWebPagePreview = true
-
-			_, err := s.tg.Send(msgConfig)
-			if err != nil {
-				switch err.(type) {
-				case tgbot.Error:
-					glog.Errorln(err)
-					fmt.Println(msgConfig.Text)
-				default:
-					glog.Warningln(err)
-				}
-			}
-		}
+		s.tgSend(msgConfig)
+		return
 	}
+
+	var msgConfig tgbot.MessageConfig
+
+	channels, err := s.db.getChannelsByChatID(chatID)
+	if err != nil {
+		glog.Errorln(err)
+		msgConfig = tgbot.NewMessage(chatID, "Can not unsubscribe channels.\nInternal server error.")
+	} else {
+		list := []string{"You already unsubscribe following channels:"}
+		set := make(map[int64]bool)
+
+		// Get not repeating channel indices
+		for _, i := range elements[1:] {
+			idx, err := strconv.ParseInt(i, 10, 64)
+			if err != nil || idx >= int64(len(channels)) {
+				continue
+			}
+			set[idx] = true
+		}
+
+		// Run unsubscription
+		for idx := range set {
+			if _, err := s.db.Exec("DELETE FROM subscribers WHERE chatID = ? AND channelID = ?;", chatID, channels[idx].id); err != nil {
+				glog.Errorln(err)
+				continue
+			}
+
+			chTitle := tgbot.EscapeText(channels[idx].title)
+			chLink := tgbot.InlineLink(chTitle, "https://www.youtube.com/channel/"+channels[idx].id)
+			list = append(list, chLink)
+		}
+
+		// Check not subscribed channels & unsubscribe them from hub
+		go func() {
+			var chIDs []string
+
+			err := s.db.queryResults(
+				&chIDs,
+				func(rows *sql.Rows, dest interface{}) error {
+					r := dest.(*string)
+					return rows.Scan(r)
+				},
+				"SELECT channels.id FROM "+
+					"channels LEFT JOIN subscribers ON channels.id = subscribers.channelID "+
+					"WHERE subscribers.chatID IS NULL;",
+			)
+
+			if err != nil {
+				glog.Errorln(err)
+				return
+			}
+
+			for _, id := range chIDs {
+				if _, err := s.db.Exec("DELETE FROM channels WHERE id = ?;", id); err != nil {
+					glog.Errorln(err)
+					continue
+				}
+
+				s.hub.Unsubscribe(id)
+			}
+		}()
+
+		// Send message
+		msgConfig = tgbot.NewMessage(chatID, strings.Join(list, "\n"))
+		msgConfig.DisableWebPagePreview = true
+	}
+
+	s.tgSend(msgConfig)
 }
 
 func (s *Server) noticeHandler(feed hub.Feed) {
 	if feed.Entry != nil {
-		// If it's a normal entry ...
-
+		// If it's a normal entry
 		// Check if it's already exists.
 		var exists bool
 		err := s.db.QueryRow("SELECT EXISTS(SELECT * FROM videos WHERE id = ?);", feed.Entry.VideoID).Scan(&exists)
@@ -334,7 +293,7 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 			glog.Errorln(err)
 		}
 	} else {
-		glog.Warningln(errors.New("Receive a empty feed"))
+		glog.Warningln(errors.New("receive a empty feed"))
 	}
 }
 
@@ -421,21 +380,9 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 			}
 		} else {
 			// If this chat has be notified, edit existing notify message.
-			const notModified = "Bad Request: message is not modified"
-
 			editMsgConfig := tgbot.NewEditMessageText(n.chatID, n.messageID, newNotifyMessageText(video))
-			_, err := s.tg.Send(editMsgConfig)
-			if err != nil {
-				switch err.(type) {
-				case tgbot.Error:
-					if !strings.HasPrefix(err.Error(), notModified) {
-						glog.Errorln(err)
-						fmt.Println(editMsgConfig.Text)
-					}
-				default:
-					glog.Warningln(err)
-				}
-			}
+
+			s.tgSend(editMsgConfig)
 		}
 	}
 
@@ -501,7 +448,7 @@ func newNotifyMessageText(video *ytapi.Video) string {
 		"%s\n%s",
 		tgbot.InlineLink(
 			tgbot.BordText(tgbot.EscapeText(video.Snippet.Title)),
-			ytVideoURLPrefix+tgbot.EscapeText(video.Id),
+			ytVideoURLPrefix+video.Id,
 		),
 		tgbot.ItalicText(tgbot.EscapeText(video.Snippet.ChannelTitle)),
 	)
@@ -579,20 +526,10 @@ func (s *Server) remindHandler(update tgbot.Update) {
 	if len(elements) == 1 {
 		msgConfig := tgbot.NewMessage(
 			update.Message.Chat.ID,
-			"Please use `\\/remind <video url\\> \\.\\.\\.` to set video reminder\\.",
+			"Please use "+tgbot.InlineCode("/remind <video url> ...")+" to set video reminder\\.",
 		)
 
-		_, err := s.tg.Send(msgConfig)
-		if err != nil {
-			switch err.(type) {
-			case tgbot.Error:
-				glog.Errorln(err)
-				fmt.Println(msgConfig.Text)
-			default:
-				glog.Warningln(err)
-			}
-		}
-
+		s.tgSend(msgConfig)
 		return
 	}
 
@@ -609,30 +546,19 @@ func (s *Server) remindHandler(update tgbot.Update) {
 			); err != nil {
 				glog.Errorln(err)
 
-				msgTemplate := "%s %s failed.\n\nIt's a internal server error,\npls contact author or resend later."
+				msgTemplate := "%s %s failed.\nInternal server error."
 				msgTemplate = tgbot.EscapeText(msgTemplate)
-				videoID = tgbot.EscapeText(videoID)
 
 				msgConfig := tgbot.NewMessage(chatID, fmt.Sprintf(
 					msgTemplate,
 					tgbot.ItalicText(tgbot.BordText("Remind")),
-					tgbot.InlineLink(videoID, "https://www.youtube.com/watch?v="+videoID),
+					tgbot.InlineLink(videoID, e),
 				))
 
 				msgConfig.DisableNotification = true
 				msgConfig.DisableWebPagePreview = true
 
-				_, err := s.tg.Send(msgConfig)
-				if err != nil {
-					switch err.(type) {
-					case tgbot.Error:
-						glog.Errorln(err)
-						fmt.Println(msgConfig.Text)
-					default:
-						glog.Warningln(err)
-					}
-				}
-
+				s.tgSend(msgConfig)
 				continue
 			}
 
@@ -690,7 +616,7 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 			tgbot.ItalicText(tgbot.EscapeText(r.chTitle)),
 			tgbot.InlineLink(
 				tgbot.BordText(tgbot.EscapeText(r.vTitle)),
-				ytVideoURLPrefix+tgbot.EscapeText(r.vID),
+				ytVideoURLPrefix+r.vID,
 			),
 		)
 
@@ -698,23 +624,14 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 	}
 
 	if len(list) == 0 {
-		list = append(list, tgbot.EscapeText("No upcoming live streams."))
+		list = append(list, "No upcoming live streams\\.")
 	}
 
 	msgConfig := tgbot.NewMessage(chatID, strings.Join(list, "\n"))
 	msgConfig.DisableNotification = true
 	msgConfig.DisableWebPagePreview = true
 
-	_, err = s.tg.Send(msgConfig)
-	if err != nil {
-		switch err.(type) {
-		case tgbot.Error:
-			glog.Errorln(err)
-			fmt.Println(msgConfig.Text)
-		default:
-			glog.Warningln(err)
-		}
-	}
+	s.tgSend(msgConfig)
 }
 
 func (s *Server) filterHandler(update tgbot.Update) {
@@ -730,17 +647,7 @@ func (s *Server) filterHandler(update tgbot.Update) {
 			),
 		)
 
-		_, err := s.tg.Send(msgConfig)
-		if err != nil {
-			switch err.(type) {
-			case tgbot.Error:
-				glog.Errorln(err)
-				fmt.Println(msgConfig.Text)
-			default:
-				glog.Warningln(err)
-			}
-		}
-
+		s.tgSend((msgConfig))
 		return
 	}
 
@@ -780,6 +687,8 @@ func (s *Server) filterHandler(update tgbot.Update) {
 	}
 
 	var msgConfig tgbot.MessageConfig
+	msgConfig.DisableNotification = true
+	msgConfig.DisableWebPagePreview = true
 
 	if b, err := isValidYtChannel(channel); err == nil && b {
 		// If channel is a valid yt channel...
@@ -821,7 +730,8 @@ func (s *Server) filterHandler(update tgbot.Update) {
 					glog.Errorln(err)
 					channel := tgbot.EscapeText(channel)
 					msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter show on %s failed, internal server error", channel))
-					goto FILTERHANDLER_SEND_MESSAGE
+					s.tgSend(msgConfig)
+					return
 				}
 
 				var black, white string
@@ -843,7 +753,8 @@ func (s *Server) filterHandler(update tgbot.Update) {
 					tgbot.EscapeText(white),
 				))
 
-				goto FILTERHANDLER_SEND_MESSAGE
+				s.tgSend(msgConfig)
+				return
 			}
 
 			// Regular add filter
@@ -857,7 +768,8 @@ func (s *Server) filterHandler(update tgbot.Update) {
 				glog.Errorln(err)
 				channel := tgbot.EscapeText(channel)
 				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
-				goto FILTERHANDLER_SEND_MESSAGE
+				s.tgSend(msgConfig)
+				return
 			}
 
 			_, err = s.db.Exec(
@@ -870,7 +782,8 @@ func (s *Server) filterHandler(update tgbot.Update) {
 				glog.Errorln(err)
 				channel := tgbot.EscapeText(channel)
 				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
-				goto FILTERHANDLER_SEND_MESSAGE
+				s.tgSend(msgConfig)
+				return
 			}
 
 			msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf(
@@ -893,17 +806,28 @@ func (s *Server) filterHandler(update tgbot.Update) {
 		channel := tgbot.EscapeText(channel)
 		msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("%s is not a valid YouTube channel", channel))
 	}
+	s.tgSend(msgConfig)
+}
 
-FILTERHANDLER_SEND_MESSAGE:
-	msgConfig.DisableNotification = true
-	msgConfig.DisableWebPagePreview = true
-
-	_, err := s.tg.Send(msgConfig)
+func (s *Server) tgSend(c tgbot.Chattable) {
+	_, err := s.tg.Send(c)
 	if err != nil {
 		switch err.(type) {
 		case tgbot.Error:
-			glog.Errorln(err)
-			fmt.Println(msgConfig.Text)
+			switch cfg := c.(type) {
+			case tgbot.MessageConfig:
+				glog.Errorln(err)
+				fmt.Println(cfg.Text)
+			case tgbot.EditMessageTextConfig:
+				const notModified = "Bad Request: message is not modified"
+
+				if !strings.HasPrefix(err.Error(), notModified) {
+					glog.Errorln(err)
+					fmt.Println(cfg.Text)
+				}
+			default:
+				fmt.Printf("%+v\n", cfg)
+			}
 		default:
 			glog.Warningln(err)
 		}

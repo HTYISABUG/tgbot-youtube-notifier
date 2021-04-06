@@ -30,6 +30,13 @@ func NewYtAPI(apiKey string) *YtAPI {
 // Channel is *channel* resource contains information about a YouTube
 // channel.
 type Channel = youtube.Channel
+type InvalidChannelIDError struct {
+	Id string
+}
+
+func (e InvalidChannelIDError) Error() string {
+	return fmt.Sprintf("Invalid channel ID: %s", e.Id)
+}
 
 // GetChannel ...
 func (api *YtAPI) GetChannel(channelID string, parts []string) (*Channel, error) {
@@ -38,7 +45,7 @@ func (api *YtAPI) GetChannel(channelID string, parts []string) (*Channel, error)
 	if err != nil {
 		return nil, err
 	} else if len(channels) == 0 {
-		return nil, fmt.Errorf("Invalid channel ID: %s", channelID)
+		return nil, InvalidChannelIDError{Id: channelID}
 	} else {
 		return channels[0], nil
 	}
