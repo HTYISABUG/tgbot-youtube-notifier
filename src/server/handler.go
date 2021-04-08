@@ -102,6 +102,12 @@ func (s *Server) chListHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 
 	var msgConfig tgbot.MessageConfig
+	defer func() {
+		msgConfig.DisableNotification = true
+		msgConfig.DisableWebPagePreview = true
+		s.tgSend(msgConfig)
+	}()
+
 	channels, err := s.db.getChannelsByChatID(chatID)
 	if err != nil {
 		glog.Errorln(err)
@@ -118,10 +124,7 @@ func (s *Server) chListHandler(update tgbot.Update) {
 		}
 
 		msgConfig = tgbot.NewMessage(chatID, strings.Join(list, "\n"))
-		msgConfig.DisableWebPagePreview = true
 	}
-
-	s.tgSend(msgConfig)
 }
 
 // chRemoveHandler handles channel unsubscribe request.
@@ -129,18 +132,21 @@ func (s *Server) chRemoveHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 	elements := strings.Fields(update.Message.Text)
 
+	var msgConfig tgbot.MessageConfig
+	defer func() {
+		msgConfig.DisableNotification = true
+		msgConfig.DisableWebPagePreview = true
+		s.tgSend(msgConfig)
+	}()
+
 	if len(elements) == 1 {
-		msgConfig := tgbot.NewMessage(
+		msgConfig = tgbot.NewMessage(
 			chatID,
 			"Please use /list to find the channel numbers which you want to unsubscribe\\. "+
 				"Then use "+tgbot.InlineCode("/remove <number> ...")+" to unsubscribe\\.",
 		)
-
-		s.tgSend(msgConfig)
 		return
 	}
-
-	var msgConfig tgbot.MessageConfig
 
 	channels, err := s.db.getChannelsByChatID(chatID)
 	if err != nil {
@@ -203,10 +209,7 @@ func (s *Server) chRemoveHandler(update tgbot.Update) {
 
 		// Send message
 		msgConfig = tgbot.NewMessage(chatID, strings.Join(list, "\n"))
-		msgConfig.DisableWebPagePreview = true
 	}
-
-	s.tgSend(msgConfig)
 }
 
 func (s *Server) noticeHandler(feed hub.Feed) {
@@ -572,6 +575,13 @@ func (s *Server) remindHandler(update tgbot.Update) {
 func (s *Server) scheduleHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 
+	var msgConfig tgbot.MessageConfig
+	defer func() {
+		msgConfig.DisableNotification = true
+		msgConfig.DisableWebPagePreview = true
+		s.tgSend(msgConfig)
+	}()
+
 	var results []struct {
 		vID, vTitle string
 		chTitle     string
@@ -596,6 +606,7 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 
 	if err != nil {
 		glog.Errorln(err)
+		msgConfig = tgbot.NewMessage(chatID, "Can not list live schedule.\nInternal server error.")
 		return
 	}
 
@@ -627,27 +638,28 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 		list = append(list, "No upcoming live streams\\.")
 	}
 
-	msgConfig := tgbot.NewMessage(chatID, strings.Join(list, "\n"))
-	msgConfig.DisableNotification = true
-	msgConfig.DisableWebPagePreview = true
-
-	s.tgSend(msgConfig)
+	msgConfig = tgbot.NewMessage(chatID, strings.Join(list, "\n"))
 }
 
 func (s *Server) filterHandler(update tgbot.Update) {
 	chatID := update.Message.Chat.ID
 	elements := strings.Fields(update.Message.Text)
 
+	var msgConfig tgbot.MessageConfig
+	defer func() {
+		msgConfig.DisableNotification = true
+		msgConfig.DisableWebPagePreview = true
+		s.tgSend(msgConfig)
+	}()
+
 	if len(elements) == 1 {
-		msgConfig := tgbot.NewMessage(
+		msgConfig = tgbot.NewMessage(
 			chatID,
 			fmt.Sprintf(
 				"Please use `%s` to set filter\\.",
 				tgbot.EscapeText("/filter [-show] [-blacklist <word> ...] [-whitelist <word> ...] <channel url>"),
 			),
 		)
-
-		s.tgSend((msgConfig))
 		return
 	}
 
@@ -686,10 +698,6 @@ func (s *Server) filterHandler(update tgbot.Update) {
 		*container = append(*container, elements[len(elements)-1])
 	}
 
-	var msgConfig tgbot.MessageConfig
-	msgConfig.DisableNotification = true
-	msgConfig.DisableWebPagePreview = true
-
 	if b, err := isValidYtChannel(channel); err == nil && b {
 		// If channel is a valid yt channel...
 		_, url, _ := followRedirectURL(channel)
@@ -705,6 +713,7 @@ func (s *Server) filterHandler(update tgbot.Update) {
 				glog.Errorln(err)
 				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
 			}
+			return
 		} else {
 			// If Show only
 			if show {
@@ -730,7 +739,6 @@ func (s *Server) filterHandler(update tgbot.Update) {
 					glog.Errorln(err)
 					channel := tgbot.EscapeText(channel)
 					msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter show on %s failed, internal server error", channel))
-					s.tgSend(msgConfig)
 					return
 				}
 
@@ -753,7 +761,6 @@ func (s *Server) filterHandler(update tgbot.Update) {
 					tgbot.EscapeText(white),
 				))
 
-				s.tgSend(msgConfig)
 				return
 			}
 
@@ -768,7 +775,6 @@ func (s *Server) filterHandler(update tgbot.Update) {
 				glog.Errorln(err)
 				channel := tgbot.EscapeText(channel)
 				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
-				s.tgSend(msgConfig)
 				return
 			}
 
@@ -782,7 +788,6 @@ func (s *Server) filterHandler(update tgbot.Update) {
 				glog.Errorln(err)
 				channel := tgbot.EscapeText(channel)
 				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
-				s.tgSend(msgConfig)
 				return
 			}
 
@@ -806,7 +811,6 @@ func (s *Server) filterHandler(update tgbot.Update) {
 		channel := tgbot.EscapeText(channel)
 		msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("%s is not a valid YouTube channel", channel))
 	}
-	s.tgSend(msgConfig)
 }
 
 func (s *Server) tgSend(c tgbot.Chattable) {
