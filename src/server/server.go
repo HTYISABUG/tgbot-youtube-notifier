@@ -145,6 +145,8 @@ func (s *Server) handlerRelay() {
 					go s.scheduleHandler(update)
 				case "/filter":
 					go s.filterHandler(update)
+				case "~autorecord":
+					go s.autoRecordHandler(update)
 				}
 			}
 		case feed := <-s.notifyCh:

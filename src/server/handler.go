@@ -837,3 +837,177 @@ func (s *Server) tgSend(c tgbot.Chattable) {
 		}
 	}
 }
+
+func (s *Server) autoRecordHandler(update tgbot.Update) {
+	chatID := update.Message.Chat.ID
+	elements := strings.Fields(update.Message.Text)
+
+	var msgConfig tgbot.MessageConfig
+	defer func() {
+		msgConfig.DisableNotification = true
+		msgConfig.DisableWebPagePreview = true
+		s.tgSend(msgConfig)
+	}()
+
+	// Help.
+	if len(elements) == 1 {
+		msgConfig = tgbot.NewMessage(
+			chatID,
+			fmt.Sprintf(
+				"Please use `%s` to set autorecorder\\.",
+				tgbot.EscapeText("~autorecord [-show] [-remove] <channel url> ..."),
+			),
+		)
+		return
+	}
+
+	var show, remove bool
+	for i, e := range elements {
+		switch e {
+		case "-show":
+			elements = append(elements[:i], elements[i+1:]...)
+			show = true
+		case "-remove":
+			elements = append(elements[:i], elements[i+1:]...)
+			remove = true
+		}
+	}
+
+	// Show all autorecords.
+	if show {
+		var channels []rowChannel
+
+		err := s.db.queryResults(
+			&channels,
+			func(rows *sql.Rows, dest interface{}) error {
+				ch := dest.(*rowChannel)
+				return rows.Scan(&ch.id, &ch.title)
+			},
+			"SELECT channels.id, channels.title "+
+				"FROM autorecords INNER JOIN channels "+
+				"ON autorecords.channelID = channels.id "+
+				"WHERE autorecords.chatID = ?;",
+			chatID,
+		)
+
+		if err != nil {
+			glog.Errorln(err)
+			msgConfig = tgbot.NewMessage(chatID, "Failed to show autorecords, internal server error")
+			return
+		}
+
+		var channelText []string
+
+		for _, ch := range channels {
+			channelText = append(
+				channelText,
+				tgbot.InlineLink(
+					tgbot.EscapeText(ch.title),
+					"https://www.youtube.com/channel/"+ch.id,
+				),
+			)
+		}
+
+		msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf(
+			"You already set autorecorder on these channels:\n%s",
+			strings.Join(channelText, "\n"),
+		))
+		return
+	}
+
+	// Normal action.
+	var msgText []string
+
+	for _, channel := range elements[1:] {
+		var channelID string
+		if b, err := isValidYtChannel(channel); err == nil && b {
+			// If e is a valid yt channel...
+			_, url, _ := followRedirectURL(channel)
+			channelID = strings.Split(url.Path, "/")[2]
+
+			// Check whether user subscribed this channel
+			var exists bool
+			var chTitle string
+			err := s.db.QueryRow(
+				"SELECT EXISTS(SELECT * FROM subscribers WHERE chatID = ? AND channelID = ?), title "+
+					"FROM channels "+
+					"WHERE id = ?",
+				chatID, channelID, channelID,
+			).Scan(&exists, &chTitle)
+
+			chTitle = tgbot.EscapeText(chTitle)
+
+			if err != nil {
+				channel = tgbot.EscapeText(channel)
+
+				if err == sql.ErrNoRows {
+					msgText = append(msgText, fmt.Sprintf("You have not subscribed to %s", channel))
+				} else {
+					glog.Errorln(err)
+					msgText = append(msgText, fmt.Sprintf("Failed to modify autorecorder on %s, internal server error", channel))
+				}
+
+				continue
+			} else if !exists {
+				msgText = append(
+					msgText,
+					fmt.Sprintf(
+						"You have not subscribed to %s",
+						tgbot.InlineLink(chTitle, channel),
+					),
+				)
+
+				continue
+			}
+
+			if !remove {
+				// Add channel to autorecorder table
+				if _, err = s.db.Exec(
+					"INSERT IGNORE INTO autorecords (chatID, channelID) VALUES (?, ?);",
+					chatID, channelID,
+				); err != nil {
+					glog.Errorln(err)
+					channel = tgbot.EscapeText(channel)
+					msgText = append(msgText, fmt.Sprintf(
+						"Failed to modify autorecorder on %s, internal server error",
+						tgbot.InlineLink(chTitle, channel),
+					))
+					continue
+				}
+
+				msgText = append(msgText, fmt.Sprintf("Add autorecorder on %s", tgbot.InlineLink(chTitle, channel)))
+			} else {
+				// Remove channel from autorecorder table
+				if _, err = s.db.Exec(
+					"DELETE FROM autorecords WHERE chatID = ? AND channelID = ?;",
+					chatID, channelID,
+				); err != nil {
+					glog.Errorln(err)
+					msgText = append(msgText, fmt.Sprintf(
+						"Failed to modify autorecorder on %s, internal server error",
+						tgbot.InlineLink(chTitle, channel),
+					))
+					continue
+				}
+
+				msgText = append(msgText, fmt.Sprintf("Remove autorecorder on %s", tgbot.InlineLink(chTitle, channel)))
+			}
+		} else if err != nil {
+			// If valid check failed...
+			glog.Warningln(err)
+			channel = tgbot.EscapeText(channel)
+			msgText = append(msgText, fmt.Sprintf("Failed to add autorecorder to %s, internal server error", channel))
+		} else if !b {
+			// If e isn't a valid yt channel...
+			channel = tgbot.EscapeText(channel)
+			msgText = append(msgText, fmt.Sprintf("%s is not a valid YouTube channel", channel))
+		}
+	}
+
+	// Emtpy message
+	if len(msgText) == 0 {
+		msgText = append(msgText, "Empty parameters\\.")
+	}
+
+	msgConfig = tgbot.NewMessage(chatID, strings.Join(msgText, "\n"))
+}
