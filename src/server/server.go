@@ -18,10 +18,10 @@ type Server struct {
 	yt  *ytapi.YtAPI
 	db  *database
 
-	host      string
-	httpPort  int
-	httpsPort int
-	serveMux  *http.ServeMux
+	host     string
+	port     int
+	sslPort  int
+	serveMux *http.ServeMux
 
 	tgUpdateCh tgbot.UpdatesChannel
 	notifyCh   <-chan hub.Feed
@@ -40,7 +40,7 @@ type Setting struct {
 }
 
 // NewServer returns a pointer to a new `Server` object.
-func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
+func NewServer(setting Setting, port, sslPort int) (*Server, error) {
 	tg, err := tgbot.NewTgBot(setting.BotToken)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 
 	mux := new(http.ServeMux)
 	tgUpdateCh := tg.ListenForWebhook("/tgbot", mux)
-	hub, notifyCh := hub.NewClient(fmt.Sprintf("%s:%d", setting.Host, httpPort), mux)
+	hub, notifyCh := hub.NewClient(fmt.Sprintf("%s:%d", setting.Host, port), mux)
 
 	return &Server{
 		hub: hub,
@@ -63,10 +63,10 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 		yt:  yt,
 		db:  db,
 
-		host:      setting.Host,
-		httpPort:  httpPort,
-		httpsPort: httpsPort,
-		serveMux:  mux,
+		host:     setting.Host,
+		port:     port,
+		sslPort:  sslPort,
+		serveMux: mux,
 
 		tgUpdateCh: tgUpdateCh,
 		notifyCh:   notifyCh,
@@ -75,8 +75,7 @@ func NewServer(setting Setting, httpPort, httpsPort int) (*Server, error) {
 	}, nil
 }
 
-// ListenAndServeTLS starts a HTTPS server using server ServeMux
-func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
+func (s *Server) initServer() {
 	// Recover all subscribed channels
 	channels, err := s.db.getChannels()
 	if err != nil {
@@ -95,23 +94,36 @@ func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 
 	// Initialize update scheduler.
 	go s.initScheduler()
-
-	// Since WebSub library can only send http link,
-	// we need a redirect server to redirect request to TLS server.
-	go func() {
-		glog.Infoln("Starting HTTP redirect server on port", s.httpPort)
-		glog.Fatalln(http.ListenAndServe(fmt.Sprintf(":%d", s.httpPort), http.HandlerFunc(s.redirectTLS)))
-	}()
-
-	// Start TLS server
-	glog.Infoln("Starting HTTPS server on port", s.httpsPort)
-	glog.Fatalln(http.ListenAndServeTLS(fmt.Sprintf(":%d", s.httpsPort), certFile, keyFile, s.serveMux))
 }
 
-func (s *Server) redirectTLS(w http.ResponseWriter, r *http.Request) {
-	addr := fmt.Sprintf("%s:%d", s.host, s.httpsPort)
-	url := "https://" + addr + r.RequestURI
-	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+// ListenAndServeTLS starts a HTTPS server using server ServeMux
+func (s *Server) ListenAndServe() {
+	s.initServer()
+
+	// Start server
+	glog.Infoln("Starting server on port", s.port)
+	glog.Fatalln(http.ListenAndServe(fmt.Sprintf(":%d", s.port), s.serveMux))
+}
+
+func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
+	s.initServer()
+
+	go func() {
+		glog.Infoln("Starting redirect server on port", s.port)
+		glog.Fatalln(http.ListenAndServe(
+			fmt.Sprintf(":%d", s.port),
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				addr := fmt.Sprintf("%s:%d", s.host, s.sslPort)
+				url := "https://" + addr + r.RequestURI
+				http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+			}),
+		))
+	}()
+
+	// If host not using web server to provide ssl to tgbot service,
+	// manually setup a ssl server.
+	glog.Infoln("Starting SSL server on port", s.sslPort)
+	glog.Fatalln(http.ListenAndServeTLS(fmt.Sprintf(":%d", s.sslPort), certFile, keyFile, s.serveMux))
 }
 
 // Close stops the main server and run clean up procedures.
