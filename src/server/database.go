@@ -56,6 +56,24 @@ func newDatabase(dataSourceName string) (*database, error) {
 		return nil, err
 	}
 
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS filters (" +
+		"chatID BIGINT, channelID VARCHAR(255), block BOOL, content TEXT, PRIMARY KEY (chatID, channelID, block));")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS autorecords (" +
+		"chatID BIGINT, channelID VARCHAR(255), PRIMARY KEY (chatID, channelID));")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS records (" +
+		"chatID BIGINT, videoID VARCHAR(255), done BOOL, PRIMARY KEY (chatID, videoID));")
+	if err != nil {
+		return nil, err
+	}
+
 	return &database{DB: db}, nil
 }
 
