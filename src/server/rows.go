@@ -8,26 +8,13 @@ type rowChannel struct {
 }
 
 type rowChat struct {
-	id         int64
-	downloader sql.NullString
-	token      sql.NullString
-}
-
-type rowSubscriber struct {
-	chatID    int64
-	channelID string
+	id       int64
+	recorder sql.NullString
+	token    sql.NullString
 }
 
 type rowNotice struct {
 	videoID   string
 	chatID    int64
 	messageID int
-}
-
-type rowVideo struct {
-	id        string
-	channelID string
-	title     string
-	startTime int64
-	completed bool
 }

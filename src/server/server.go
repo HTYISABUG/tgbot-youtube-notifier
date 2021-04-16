@@ -57,7 +57,7 @@ func NewServer(setting Setting, port, sslPort int) (*Server, error) {
 	tgUpdateCh := tg.ListenForWebhook("/tgbot", mux)
 	hub, notifyCh := hub.NewClient(fmt.Sprintf("%s:%d", setting.Host, port), mux)
 
-	return &Server{
+	server := &Server{
 		hub: hub,
 		tg:  tg,
 		yt:  yt,
@@ -72,7 +72,11 @@ func NewServer(setting Setting, port, sslPort int) (*Server, error) {
 		notifyCh:   notifyCh,
 
 		diligentTable: make(map[string]bool),
-	}, nil
+	}
+
+	mux.HandleFunc("/recorder", server.recorderHandler)
+
+	return server, nil
 }
 
 func (s *Server) initServer() {

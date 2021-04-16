@@ -2,8 +2,12 @@ package server
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -256,7 +260,21 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 			return
 		}
 
+		// Insert video infos
+		t, _ := time.Parse(time.RFC3339, v.LiveStreamingDetails.ScheduledStartTime)
+		_, err = s.db.Exec(
+			"INSERT INTO videos (id, title, channelID, channelTitle, startTime, completed) VALUES (?, ?, ?, ?, ?, ?)"+
+				"ON DUPLICATE KEY UPDATE title = VALUES(title), channelID = VALUES(channelID), "+
+				"channelTitle = VALUES(channelTitle), startTime = VALUES(startTime);",
+			v.Id, v.Snippet.Title, v.Snippet.ChannelId, v.Snippet.ChannelTitle, t.Unix(), false,
+		)
+		if err != nil {
+			glog.Errorln(err)
+			return
+		}
+
 		s.sendVideoNotify(v)
+		s.setupVideoRecorder(v)
 		s.tryDiligentScheduler(v)
 
 		// Update channel title
@@ -301,23 +319,10 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 }
 
 func (s *Server) sendVideoNotify(video *ytapi.Video) {
-	// Record video infos
-	t, _ := time.Parse(time.RFC3339, video.LiveStreamingDetails.ScheduledStartTime)
-	_, err := s.db.Exec(
-		"INSERT INTO videos (id, title, channelID, channelTitle, startTime, completed) VALUES (?, ?, ?, ?, ?, ?)"+
-			"ON DUPLICATE KEY UPDATE title = VALUES(title), channelID = VALUES(channelID), "+
-			"channelTitle = VALUES(channelTitle), startTime = VALUES(startTime);",
-		video.Id, video.Snippet.Title, video.Snippet.ChannelId, video.Snippet.ChannelTitle, t.Unix(), false,
-	)
-	if err != nil {
-		glog.Errorln(err)
-		return
-	}
-
 	// Query subscribed chats from db according to channel id.
 	var chats []rowChat
 
-	err = s.db.queryResults(
+	err := s.db.queryResults(
 		&chats,
 		func(rows *sql.Rows, dest interface{}) error {
 			r := dest.(*rowChat)
@@ -400,6 +405,45 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 		// Remove it from notices table.
 		if _, err := s.db.Exec("DELETE FROM notices WHERE videoID = ?;", video.Id); err != nil {
 			glog.Errorln(err)
+		}
+	}
+}
+
+func (s *Server) setupVideoRecorder(video *ytapi.Video) {
+	// Query autorecorders from db according to channel id.
+	var chatIDs []int64
+
+	err := s.db.queryResults(
+		&chatIDs,
+		func(rows *sql.Rows, dest interface{}) error {
+			r := dest.(*int64)
+			return rows.Scan(r)
+		},
+		"SELECT autorecords.chatID FROM autorecords WHERE channelID = ?;",
+		video.Snippet.ChannelId,
+	)
+
+	if err != nil {
+		glog.Errorln(err)
+		return
+	}
+
+	// Insert or ignore new rows to records table.
+	for _, cid := range chatIDs {
+		b, err := s.applyFilters(cid, video)
+		if err != nil {
+			glog.Errorln(err)
+			continue
+		} else if !b { // No pass
+			continue
+		}
+
+		if _, err := s.db.Exec(
+			"INSERT IGNORE INTO records (chatID, videoID) VALUES (?, ?);",
+			cid, video.Id,
+		); err != nil {
+			glog.Errorln(err)
+			continue
 		}
 	}
 }
@@ -832,6 +876,7 @@ func (s *Server) tgSend(c tgbot.Chattable) {
 			default:
 				fmt.Printf("%+v\n", cfg)
 			}
+			debug.PrintStack()
 		default:
 			glog.Warningln(err)
 		}
@@ -1010,4 +1055,74 @@ func (s *Server) autoRecordHandler(update tgbot.Update) {
 	}
 
 	msgConfig = tgbot.NewMessage(chatID, strings.Join(msgText, "\n"))
+}
+
+// recorderHandler handle completed notify request from recorder
+func (s *Server) recorderHandler(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	body, _ := ioutil.ReadAll(r.Body)
+
+	var data struct {
+		Success  bool   `json:"success"`
+		ChatID   int64  `json:"chatID"`
+		VideoID  string `json:"videoID"`
+		Filename string `json:"filename"`
+	}
+
+	_ = json.Unmarshal(body, &data)
+
+	v, err := s.yt.GetVideo(
+		data.VideoID,
+		[]string{"snippet", "liveStreamingDetails"},
+	)
+	if err != nil {
+		glog.Warningln(err)
+		return
+	} else if !data.Success {
+		msgConfig := tgbot.NewMessage(
+			data.ChatID,
+			fmt.Sprintf(
+				"Failed to record %s, check your recorder",
+				tgbot.InlineLink(v.Snippet.Title, ytVideoURLPrefix+v.Id),
+			),
+		)
+		msgConfig.DisableNotification = true
+
+		s.tgSend(msgConfig)
+		return
+	} else if data.Success && ytapi.IsLiveBroadcast(v) && !ytapi.IsCompletedLiveBroadcast(v) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(struct {
+			Retry bool `json:"retry"`
+		}{Retry: true})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Retry bool `json:"retry"`
+	}{Retry: false})
+
+	msgConfig := tgbot.NewMessage(
+		data.ChatID,
+		fmt.Sprintf(
+			"%s recorded as\n%s",
+			tgbot.InlineLink(tgbot.EscapeText(v.Snippet.Title), ytVideoURLPrefix+v.Id),
+			tgbot.InlineCode(tgbot.EscapeText(data.Filename)),
+		),
+	)
+	msgConfig.DisableNotification = true
+	msgConfig.DisableWebPagePreview = true
+
+	s.tgSend(msgConfig)
+
+	// Remove record from table
+	if _, err = s.db.Exec(
+		"DELETE FROM records WHERE chatID = ? AND videoID = ?;",
+		data.ChatID, data.VideoID,
+	); err != nil {
+		glog.Errorln(err)
+		return
+	}
 }
