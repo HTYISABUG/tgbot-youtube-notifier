@@ -866,17 +866,19 @@ func (s *Server) tgSend(c tgbot.Chattable) {
 			case tgbot.MessageConfig:
 				glog.Errorln(err)
 				fmt.Println(cfg.Text)
+				debug.PrintStack()
 			case tgbot.EditMessageTextConfig:
 				const notModified = "Bad Request: message is not modified"
 
 				if !strings.HasPrefix(err.Error(), notModified) {
 					glog.Errorln(err)
 					fmt.Println(cfg.Text)
+					debug.PrintStack()
 				}
 			default:
 				fmt.Printf("%+v\n", cfg)
+				debug.PrintStack()
 			}
-			debug.PrintStack()
 		default:
 			glog.Warningln(err)
 		}

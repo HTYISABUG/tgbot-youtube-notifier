@@ -29,4 +29,5 @@ You have two ways to setup certification.
 1. Use web server (e.g. Nginx) to listen & proxy pass tgbot request to server port
 2. Use provide certification file path `ssl_cert` & `ssl_key` in setting file and use standalone server
 
+For the 1st way, setup parameter `--ssl_port=<your listening port>`
 For the 2nd way, start server with parameter `--use_ssl=True`.
