@@ -142,6 +142,13 @@ func (s *Server) diligentScheduler(videoID string) {
 			}
 
 			for _, n := range notices {
+				// Remove record button
+				go func() {
+					cfg := tgbot.NewEditMessageReplyMarkup(n.chatID, n.messageID,
+						tgbot.InlineKeyboardMarkup{InlineKeyboard: [][]tgbot.InlineKeyboardButton{{}}})
+					s.tgSend(cfg)
+				}()
+
 				go s.sendDownloadRequest(v, n)
 
 				msgConfig := tgbot.NewMessage(n.chatID, fmt.Sprintf(

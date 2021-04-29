@@ -17,6 +17,7 @@ import (
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
 	"github.com/golang/glog"
+	"google.golang.org/api/youtube/v3"
 )
 
 // chAddHandler handles channel subscribe request.
@@ -274,7 +275,7 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 		}
 
 		s.sendVideoNotify(v)
-		s.setupVideoRecorder(v)
+		s.setupVideoAutoRecorder(v)
 		s.tryDiligentScheduler(v)
 
 		// Update channel title
@@ -368,6 +369,18 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 		if n.messageID == -1 {
 			// If this chat still not being notified, send new notify message.
 			msgConfig := tgbot.NewMessage(n.chatID, newNotifyMessageText(video))
+
+			cond, err := s.isRecordButtonShowCondition(n.chatID, video)
+			if err != nil {
+				glog.Error(err)
+			} else if cond {
+				button := tgbot.NewInlineKeyboardButtonData("Record", video.Id)
+				row := tgbot.NewInlineKeyboardRow(button)
+				markup := tgbot.NewInlineKeyboardMarkup(row)
+				msgConfig.ReplyMarkup = markup
+			}
+
+			// Send message
 			message, err := s.tg.Send(msgConfig)
 			if err != nil {
 				switch err.(type) {
@@ -390,6 +403,16 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 			// If this chat has be notified, edit existing notify message.
 			editMsgConfig := tgbot.NewEditMessageText(n.chatID, n.messageID, newNotifyMessageText(video))
 
+			cond, err := s.isRecordButtonShowCondition(n.chatID, video)
+			if err != nil {
+				glog.Error(err)
+			} else if cond {
+				button := tgbot.NewInlineKeyboardButtonData("Record", video.Id)
+				row := tgbot.NewInlineKeyboardRow(button)
+				markup := tgbot.NewInlineKeyboardMarkup(row)
+				editMsgConfig.ReplyMarkup = &markup
+			}
+
 			s.tgSend(editMsgConfig)
 		}
 	}
@@ -409,7 +432,48 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 	}
 }
 
-func (s *Server) setupVideoRecorder(video *ytapi.Video) {
+func (s *Server) isRecordButtonShowCondition(chatID int64, video *youtube.Video) (bool, error) {
+	// Check user recorder existence
+	var exist bool
+	err := s.db.QueryRow(
+		"SELECT EXISTS(SELECT * FROM chats WHERE id = ? AND recorder IS NOT NULL AND token IS NOT NULL);",
+		chatID,
+	).Scan(&exist)
+
+	if err != nil {
+		return false, err
+	} else if !exist {
+		return false, nil
+	}
+
+	// Check autorecorder existence
+	err = s.db.QueryRow(
+		"SELECT EXISTS(SELECT * FROM autorecords WHERE chatID = ? AND channelID = ?);",
+		chatID, video.Snippet.ChannelId,
+	).Scan(&exist)
+
+	if err != nil {
+		return false, err
+	} else if exist {
+		return false, nil
+	}
+
+	// Check recorder existence
+	err = s.db.QueryRow(
+		"SELECT EXISTS(SELECT * FROM records WHERE chatID = ? AND videoID = ?);",
+		chatID, video.Id,
+	).Scan(&exist)
+
+	if err != nil {
+		return false, err
+	} else if exist {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func (s *Server) setupVideoAutoRecorder(video *ytapi.Video) {
 	// Query autorecorders from db according to channel id.
 	var chatIDs []int64
 
@@ -876,6 +940,7 @@ func (s *Server) tgSend(c tgbot.Chattable) {
 					debug.PrintStack()
 				}
 			default:
+				glog.Error(err)
 				fmt.Printf("%+v\n", cfg)
 				debug.PrintStack()
 			}
@@ -1126,5 +1191,30 @@ func (s *Server) recorderHandler(w http.ResponseWriter, r *http.Request) {
 	); err != nil {
 		glog.Error(err)
 		return
+	}
+}
+
+func (s *Server) callbackHandler(update tgbot.Update) {
+	callbackID := update.CallbackQuery.ID
+	chatID := update.CallbackQuery.Message.Chat.ID
+	msgID := update.CallbackQuery.Message.MessageID
+	videoID := update.CallbackQuery.Data
+
+	var cfg tgbot.CallbackConfig
+
+	if _, err := s.db.Exec(
+		"INSERT IGNORE INTO records (chatID, videoID) VALUES (?, ?);",
+		chatID, videoID,
+	); err != nil {
+		glog.Error(err)
+		cfg = tgbot.NewCallback(callbackID, "Internal server error")
+		s.tg.AnswerCallbackQuery(cfg)
+	} else {
+		cfg = tgbot.NewCallback(callbackID, fmt.Sprintf("Add %s recorder", videoID))
+		s.tg.AnswerCallbackQuery(cfg)
+
+		cfg := tgbot.NewEditMessageReplyMarkup(chatID, msgID,
+			tgbot.InlineKeyboardMarkup{InlineKeyboard: [][]tgbot.InlineKeyboardButton{{}}})
+		s.tgSend(cfg)
 	}
 }

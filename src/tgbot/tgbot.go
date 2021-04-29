@@ -87,3 +87,39 @@ type Error = api.Error
 
 // Chattable is any config type that can be sent.
 type Chattable = api.Chattable
+
+// NewInlineKeyboardButtonData creates an inline keyboard button with text
+// and data for a callback.
+var NewInlineKeyboardButtonData = api.NewInlineKeyboardButtonData
+
+// InlineKeyboardButton is a button within a custom keyboard for
+// inline query responses.
+//
+// Note that some values are references as even an empty string
+// will change behavior.
+//
+// CallbackGame, if set, MUST be first button in first row.
+type InlineKeyboardButton = api.InlineKeyboardButton
+
+// NewInlineKeyboardRow creates an inline keyboard row with buttons.
+var NewInlineKeyboardRow = api.NewInlineKeyboardRow
+
+// NewInlineKeyboardMarkup creates a new inline keyboard.
+var NewInlineKeyboardMarkup = api.NewInlineKeyboardMarkup
+
+// InlineKeyboardMarkup is a custom keyboard presented for an inline bot.
+type InlineKeyboardMarkup = api.InlineKeyboardMarkup
+
+// NewCallback creates a new callback message.
+var NewCallback = api.NewCallback
+
+// CallbackConfig contains information on making a CallbackQuery response.
+type CallbackConfig = api.CallbackConfig
+
+// NewEditMessageReplyMarkup allows you to edit the inline
+// keyboard markup.
+var NewEditMessageReplyMarkup = api.NewEditMessageReplyMarkup
+
+// EditMessageReplyMarkupConfig allows you to modify the reply markup
+// of a message.
+type EditMessageReplyMarkupConfig = api.EditMessageReplyMarkupConfig

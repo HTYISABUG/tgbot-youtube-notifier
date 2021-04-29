@@ -164,6 +164,8 @@ func (s *Server) handlerRelay() {
 				case "~autorecord":
 					go s.autoRecordHandler(update)
 				}
+			} else if update.CallbackQuery != nil {
+				go s.callbackHandler(update)
 			}
 		case feed := <-s.notifyCh:
 			go s.noticeHandler(feed)
