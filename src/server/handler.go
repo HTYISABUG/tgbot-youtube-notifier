@@ -314,6 +314,11 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 		if _, err := s.db.Exec("DELETE FROM notices WHERE videoID = ?;", videoID); err != nil {
 			glog.Error(err)
 		}
+
+		// Remove deleted video from records table.
+		if _, err := s.db.Exec("DELETE FROM records WHERE videoID = ?;", videoID); err != nil {
+			glog.Error(err)
+		}
 	} else {
 		glog.Warning(errors.New("receive a empty feed"))
 	}
