@@ -58,14 +58,14 @@ func (s *Server) updateNotifies() {
 	)
 
 	if err != nil {
-		glog.Errorln(err)
+		glog.Error(err)
 		return
 	}
 
 	// Request video resources from yt api
 	videos, err := s.yt.GetVideos(videoIDs, []string{"snippet", "liveStreamingDetails"})
 	if err != nil {
-		glog.Warningln(err)
+		glog.Warning(err)
 		return
 	}
 
@@ -112,7 +112,7 @@ func (s *Server) isDiligentCondition(v *ytapi.Video) bool {
 }
 
 func (s *Server) diligentScheduler(videoID string) {
-	glog.Infoln("Running " + ytVideoURLPrefix + videoID + " diligent scheduler")
+	glog.Info("Running " + ytVideoURLPrefix + videoID + " diligent scheduler")
 
 	for {
 		time.Sleep(time.Second)
@@ -120,7 +120,7 @@ func (s *Server) diligentScheduler(videoID string) {
 		// Get video resource & update notifies.
 		v, err := s.yt.GetVideo(videoID, []string{"snippet", "liveStreamingDetails"})
 		if err != nil {
-			glog.Warningln(err)
+			glog.Warning(err)
 			return
 		}
 
@@ -137,7 +137,7 @@ func (s *Server) diligentScheduler(videoID string) {
 			// If live already start, stop diligent scheduler & send notifies.
 			notices, err := s.db.getNoticesByVideoID(v.Id)
 			if err != nil {
-				glog.Errorln(err)
+				glog.Error(err)
 				return
 			}
 
@@ -165,8 +165,8 @@ func (s *Server) diligentScheduler(videoID string) {
 		// WTF, scheduled start time has arrived but live still not started!
 		if remains <= 0 {
 			if (-remains)%30*time.Minute == 0 {
-				glog.Warningln("Running " + ytVideoURLPrefix + v.Id + " tolerance section")
-				glog.Warningln("Already " + (-remains).String() + " has elapsed")
+				glog.Warning("Running " + ytVideoURLPrefix + v.Id + " tolerance section")
+				glog.Warning("Already " + (-remains).String() + " has elapsed")
 			}
 
 			// Well, lets wait for 30 more seconds.
@@ -215,7 +215,7 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 	).Scan(&exists)
 
 	if err != nil && err != sql.ErrNoRows {
-		glog.Errorln(err)
+		glog.Error(err)
 		msgConfig = internalServerError
 		return
 	} else if exists {
@@ -229,7 +229,7 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 		).Scan(&recorder, &token)
 
 		if err != nil && err != sql.ErrNoRows {
-			glog.Errorln(err)
+			glog.Error(err)
 			msgConfig = internalServerError
 			return
 		} else if !recorder.Valid || !token.Valid {
@@ -253,7 +253,7 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 		// Encode request body
 		b, err := json.Marshal(data)
 		if err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 			msgConfig = internalServerError
 			return
 		}
@@ -261,7 +261,7 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 		// Create request
 		req, err := http.NewRequest("POST", recorder.String, bytes.NewReader(b))
 		if err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 			msgConfig = internalServerError
 			return
 		}
@@ -281,7 +281,7 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 					fmt.Sprintf("Record %s failed, connection timeout", tgbot.InlineLink(eTitle, vURL)),
 				)
 			} else {
-				glog.Errorln(err)
+				glog.Error(err)
 				msgConfig = internalServerError
 			}
 

@@ -44,12 +44,12 @@ func main() {
 	signal.Notify(signalCh, os.Interrupt)
 	go func() {
 		<-signalCh
-		glog.Infoln("Graceful shutdown server...")
+		glog.Info("Graceful shutdown server...")
 		server.Close()
 
 		time.Sleep(time.Second * 5)
 
-		glog.Infoln("Goodbye")
+		glog.Info("Goodbye")
 		os.Exit(0)
 	}()
 
@@ -58,7 +58,7 @@ func main() {
 		server.ListenAndServe()
 	} else {
 		if setting.CertFile == "" || setting.KeyFile == "" {
-			glog.Errorln("Using standalone ssl server needs to provide `ssl_cert` & `ssl_key` filepath in setting")
+			glog.Error("Using standalone ssl server needs to provide `ssl_cert` & `ssl_key` filepath in setting")
 		}
 
 		server.ListenAndServeTLS(setting.CertFile, setting.KeyFile)

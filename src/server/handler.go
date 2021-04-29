@@ -54,14 +54,14 @@ func (s *Server) chAddHandler(update tgbot.Update) {
 				case ytapi.InvalidChannelIDError:
 					msgTemplate = "%s %s failed.\n" + fmt.Sprintf("Invalid channel ID: %s.", channelID)
 				default:
-					glog.Warningln(err)
+					glog.Warning(err)
 					msgTemplate = "%s %s failed.\nInternal server error."
 				}
 			} else {
 				title = c.Snippet.Title
 				// Insert into database.
-				if err := s.db.subscribe(rowChat{id: chatID}, rowChannel{id: c.Id, title: c.Snippet.Title}); err != nil {
-					glog.Warningln(err)
+				if err := s.db.subscribe(chatID, rowChannel{id: c.Id, title: c.Snippet.Title}); err != nil {
+					glog.Warning(err)
 					msgTemplate = "%s %s failed.\nInternal server error."
 				}
 			}
@@ -81,7 +81,7 @@ func (s *Server) chAddHandler(update tgbot.Update) {
 			))
 		} else if err != nil {
 			// If valid check failed...
-			glog.Warningln(err)
+			glog.Warning(err)
 			msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf(
 				"Subscribe %s failed, internal server error",
 				tgbot.EscapeText(e),
@@ -114,7 +114,7 @@ func (s *Server) chListHandler(update tgbot.Update) {
 
 	channels, err := s.db.getChannelsByChatID(chatID)
 	if err != nil {
-		glog.Errorln(err)
+		glog.Error(err)
 		msgConfig = tgbot.NewMessage(chatID, "Can not list subscribed channels.\nInternal server error.")
 	} else {
 		list := []string{"You already subscribed following channels:"}
@@ -154,7 +154,7 @@ func (s *Server) chRemoveHandler(update tgbot.Update) {
 
 	channels, err := s.db.getChannelsByChatID(chatID)
 	if err != nil {
-		glog.Errorln(err)
+		glog.Error(err)
 		msgConfig = tgbot.NewMessage(chatID, "Can not unsubscribe channels.\nInternal server error.")
 	} else {
 		list := []string{"You already unsubscribe following channels:"}
@@ -172,7 +172,7 @@ func (s *Server) chRemoveHandler(update tgbot.Update) {
 		// Run unsubscription
 		for idx := range set {
 			if _, err := s.db.Exec("DELETE FROM subscribers WHERE chatID = ? AND channelID = ?;", chatID, channels[idx].id); err != nil {
-				glog.Errorln(err)
+				glog.Error(err)
 				continue
 			}
 
@@ -197,13 +197,13 @@ func (s *Server) chRemoveHandler(update tgbot.Update) {
 			)
 
 			if err != nil {
-				glog.Errorln(err)
+				glog.Error(err)
 				return
 			}
 
 			for _, id := range chIDs {
 				if _, err := s.db.Exec("DELETE FROM channels WHERE id = ?;", id); err != nil {
-					glog.Errorln(err)
+					glog.Error(err)
 					continue
 				}
 
@@ -223,14 +223,14 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 		var exists bool
 		err := s.db.QueryRow("SELECT EXISTS(SELECT * FROM videos WHERE id = ?);", feed.Entry.VideoID).Scan(&exists)
 		if err != nil && err != sql.ErrNoRows {
-			glog.Errorln(err)
+			glog.Error(err)
 			return
 		} else if exists {
 			// If the video already exists, then check if it's completed.
 			var completed bool
 			err := s.db.QueryRow("SELECT completed FROM videos WHERE id = ?;", feed.Entry.VideoID).Scan(&completed)
 			if err != nil && err != sql.ErrNoRows {
-				glog.Errorln(err)
+				glog.Error(err)
 				return
 			} else if completed {
 				// If the video already completed, then discard.
@@ -244,7 +244,7 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 			[]string{"snippet", "liveStreamingDetails"},
 		)
 		if err != nil {
-			glog.Warningln(err)
+			glog.Warning(err)
 			return
 		} else if !ytapi.IsLiveBroadcast(v) {
 			// If the video is not a live broadcast, then discard.
@@ -255,7 +255,7 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 				v.Id, true,
 			)
 			if err != nil {
-				glog.Errorln(err)
+				glog.Error(err)
 			}
 			return
 		}
@@ -269,7 +269,7 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 			v.Id, v.Snippet.Title, v.Snippet.ChannelId, v.Snippet.ChannelTitle, t.Unix(), false,
 		)
 		if err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 			return
 		}
 
@@ -280,7 +280,7 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 		// Update channel title
 		_, err = s.db.Exec("UPDATE channels SET title = ? WHERE id = ?;", v.Snippet.ChannelTitle, v.Snippet.ChannelId)
 		if err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 		}
 	} else if feed.DeletedEntry != nil {
 		// Get video id
@@ -289,7 +289,7 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 		// Query notice rows according to video id.
 		notices, err := s.db.getNoticesByVideoID(videoID)
 		if err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 			return
 		}
 
@@ -301,9 +301,9 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 				if err != nil {
 					switch err.(type) {
 					case tgbot.Error:
-						glog.Errorln(err)
+						glog.Error(err)
 					default:
-						glog.Warningln(err)
+						glog.Warning(err)
 					}
 				}
 			}
@@ -311,22 +311,22 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 
 		// Remove deleted video from notices table.
 		if _, err := s.db.Exec("DELETE FROM notices WHERE videoID = ?;", videoID); err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 		}
 	} else {
-		glog.Warningln(errors.New("receive a empty feed"))
+		glog.Warning(errors.New("receive a empty feed"))
 	}
 }
 
 func (s *Server) sendVideoNotify(video *ytapi.Video) {
 	// Query subscribed chats from db according to channel id.
-	var chats []rowChat
+	var chIDs []int64
 
 	err := s.db.queryResults(
-		&chats,
+		&chIDs,
 		func(rows *sql.Rows, dest interface{}) error {
-			r := dest.(*rowChat)
-			return rows.Scan(&r.id)
+			r := dest.(*int64)
+			return rows.Scan(r)
 		},
 		"SELECT chats.id FROM "+
 			"chats INNER JOIN subscribers ON chats.id = subscribers.chatID "+
@@ -335,15 +335,15 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 	)
 
 	if err != nil {
-		glog.Errorln(err)
+		glog.Error(err)
 		return
 	}
 
 	// Insert or ignore new rows to notices table.
-	for _, c := range chats {
-		b, err := s.applyFilters(c.id, video)
+	for _, cid := range chIDs {
+		b, err := s.applyFilters(cid, video)
 		if err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 			continue
 		} else if !b { // No pass
 			continue
@@ -351,16 +351,16 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 
 		if _, err := s.db.Exec(
 			"INSERT IGNORE INTO notices (videoID, chatID, messageID) VALUES (?, ?, ?);",
-			video.Id, c.id, -1,
+			video.Id, cid, -1,
 		); err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 		}
 	}
 
 	// Query notice rows according to video id.
 	notices, err := s.db.getNoticesByVideoID(video.Id)
 	if err != nil {
-		glog.Errorln(err)
+		glog.Error(err)
 		return
 	}
 
@@ -372,10 +372,10 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 			if err != nil {
 				switch err.(type) {
 				case tgbot.Error:
-					glog.Errorln(err)
+					glog.Error(err)
 					fmt.Println(msgConfig.Text)
 				default:
-					glog.Warningln(err)
+					glog.Warning(err)
 				}
 			}
 
@@ -384,7 +384,7 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 				"UPDATE notices SET messageID = ? WHERE videoID = ? AND chatID = ?;",
 				n.messageID, n.videoID, n.chatID,
 			); err != nil {
-				glog.Errorln(err)
+				glog.Error(err)
 			}
 		} else {
 			// If this chat has be notified, edit existing notify message.
@@ -399,12 +399,12 @@ func (s *Server) sendVideoNotify(video *ytapi.Video) {
 		// Tag it as completed in videos table.
 		_, err := s.db.Exec("UPDATE videos SET completed = ? WHERE id = ?;", true, video.Id)
 		if err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 		}
 
 		// Remove it from notices table.
 		if _, err := s.db.Exec("DELETE FROM notices WHERE videoID = ?;", video.Id); err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 		}
 	}
 }
@@ -424,7 +424,7 @@ func (s *Server) setupVideoRecorder(video *ytapi.Video) {
 	)
 
 	if err != nil {
-		glog.Errorln(err)
+		glog.Error(err)
 		return
 	}
 
@@ -432,7 +432,7 @@ func (s *Server) setupVideoRecorder(video *ytapi.Video) {
 	for _, cid := range chatIDs {
 		b, err := s.applyFilters(cid, video)
 		if err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 			continue
 		} else if !b { // No pass
 			continue
@@ -442,7 +442,7 @@ func (s *Server) setupVideoRecorder(video *ytapi.Video) {
 			"INSERT IGNORE INTO records (chatID, videoID) VALUES (?, ?);",
 			cid, video.Id,
 		); err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 			continue
 		}
 	}
@@ -591,7 +591,7 @@ func (s *Server) remindHandler(update tgbot.Update) {
 				"INSERT IGNORE INTO notices (videoID, chatID, messageID) VALUES (?, ?, ?);",
 				videoID, chatID, -1,
 			); err != nil {
-				glog.Errorln(err)
+				glog.Error(err)
 
 				msgTemplate := "%s %s failed.\nInternal server error."
 				msgTemplate = tgbot.EscapeText(msgTemplate)
@@ -649,7 +649,7 @@ func (s *Server) scheduleHandler(update tgbot.Update) {
 	)
 
 	if err != nil {
-		glog.Errorln(err)
+		glog.Error(err)
 		msgConfig = tgbot.NewMessage(chatID, "Can not list live schedule.\nInternal server error.")
 		return
 	}
@@ -754,7 +754,7 @@ func (s *Server) filterHandler(update tgbot.Update) {
 			if err == sql.ErrNoRows {
 				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("You have not subscribed to %s", channel))
 			} else {
-				glog.Errorln(err)
+				glog.Error(err)
 				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
 			}
 			return
@@ -780,7 +780,7 @@ func (s *Server) filterHandler(update tgbot.Update) {
 				)
 
 				if err != nil {
-					glog.Errorln(err)
+					glog.Error(err)
 					channel := tgbot.EscapeText(channel)
 					msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter show on %s failed, internal server error", channel))
 					return
@@ -816,7 +816,7 @@ func (s *Server) filterHandler(update tgbot.Update) {
 			)
 
 			if err != nil {
-				glog.Errorln(err)
+				glog.Error(err)
 				channel := tgbot.EscapeText(channel)
 				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
 				return
@@ -829,7 +829,7 @@ func (s *Server) filterHandler(update tgbot.Update) {
 			)
 
 			if err != nil {
-				glog.Errorln(err)
+				glog.Error(err)
 				channel := tgbot.EscapeText(channel)
 				msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
 				return
@@ -847,7 +847,7 @@ func (s *Server) filterHandler(update tgbot.Update) {
 		}
 	} else if err != nil {
 		// If valid check failed...
-		glog.Warningln(err)
+		glog.Warning(err)
 		channel := tgbot.EscapeText(channel)
 		msgConfig = tgbot.NewMessage(chatID, fmt.Sprintf("Filter setup on %s failed, internal server error", channel))
 	} else if !b {
@@ -864,14 +864,14 @@ func (s *Server) tgSend(c tgbot.Chattable) {
 		case tgbot.Error:
 			switch cfg := c.(type) {
 			case tgbot.MessageConfig:
-				glog.Errorln(err)
+				glog.Error(err)
 				fmt.Println(cfg.Text)
 				debug.PrintStack()
 			case tgbot.EditMessageTextConfig:
 				const notModified = "Bad Request: message is not modified"
 
 				if !strings.HasPrefix(err.Error(), notModified) {
-					glog.Errorln(err)
+					glog.Error(err)
 					fmt.Println(cfg.Text)
 					debug.PrintStack()
 				}
@@ -880,7 +880,7 @@ func (s *Server) tgSend(c tgbot.Chattable) {
 				debug.PrintStack()
 			}
 		default:
-			glog.Warningln(err)
+			glog.Warning(err)
 		}
 	}
 }
@@ -938,7 +938,7 @@ func (s *Server) autoRecordHandler(update tgbot.Update) {
 		)
 
 		if err != nil {
-			glog.Errorln(err)
+			glog.Error(err)
 			msgConfig = tgbot.NewMessage(chatID, "Failed to show autorecords, internal server error")
 			return
 		}
@@ -990,7 +990,7 @@ func (s *Server) autoRecordHandler(update tgbot.Update) {
 				if err == sql.ErrNoRows {
 					msgText = append(msgText, fmt.Sprintf("You have not subscribed to %s", channel))
 				} else {
-					glog.Errorln(err)
+					glog.Error(err)
 					msgText = append(msgText, fmt.Sprintf("Failed to modify autorecorder on %s, internal server error", channel))
 				}
 
@@ -1013,7 +1013,7 @@ func (s *Server) autoRecordHandler(update tgbot.Update) {
 					"INSERT IGNORE INTO autorecords (chatID, channelID) VALUES (?, ?);",
 					chatID, channelID,
 				); err != nil {
-					glog.Errorln(err)
+					glog.Error(err)
 					channel = tgbot.EscapeText(channel)
 					msgText = append(msgText, fmt.Sprintf(
 						"Failed to modify autorecorder on %s, internal server error",
@@ -1029,7 +1029,7 @@ func (s *Server) autoRecordHandler(update tgbot.Update) {
 					"DELETE FROM autorecords WHERE chatID = ? AND channelID = ?;",
 					chatID, channelID,
 				); err != nil {
-					glog.Errorln(err)
+					glog.Error(err)
 					msgText = append(msgText, fmt.Sprintf(
 						"Failed to modify autorecorder on %s, internal server error",
 						tgbot.InlineLink(chTitle, channel),
@@ -1041,7 +1041,7 @@ func (s *Server) autoRecordHandler(update tgbot.Update) {
 			}
 		} else if err != nil {
 			// If valid check failed...
-			glog.Warningln(err)
+			glog.Warning(err)
 			channel = tgbot.EscapeText(channel)
 			msgText = append(msgText, fmt.Sprintf("Failed to add autorecorder to %s, internal server error", channel))
 		} else if !b {
@@ -1079,7 +1079,7 @@ func (s *Server) recorderHandler(w http.ResponseWriter, r *http.Request) {
 		[]string{"snippet", "liveStreamingDetails"},
 	)
 	if err != nil {
-		glog.Warningln(err)
+		glog.Warning(err)
 		return
 	} else if !data.Success {
 		msgConfig := tgbot.NewMessage(
@@ -1124,7 +1124,7 @@ func (s *Server) recorderHandler(w http.ResponseWriter, r *http.Request) {
 		"DELETE FROM records WHERE chatID = ? AND videoID = ?;",
 		data.ChatID, data.VideoID,
 	); err != nil {
-		glog.Errorln(err)
+		glog.Error(err)
 		return
 	}
 }

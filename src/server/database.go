@@ -77,9 +77,20 @@ func newDatabase(dataSourceName string) (*database, error) {
 	return &database{DB: db}, nil
 }
 
+type rowChannel struct {
+	id    string
+	title string
+}
+
+type rowNotice struct {
+	videoID   string
+	chatID    int64
+	messageID int
+}
+
 // Subscribe registers info into corresponding table
-func (db *database) subscribe(chat rowChat, channel rowChannel) error {
-	_, err := db.Exec("INSERT IGNORE INTO chats (id) VALUES (?);", chat.id)
+func (db *database) subscribe(chatID int64, channel rowChannel) error {
+	_, err := db.Exec("INSERT IGNORE INTO chats (id) VALUES (?);", chatID)
 	if err != nil {
 		return err
 	}
@@ -89,7 +100,7 @@ func (db *database) subscribe(chat rowChat, channel rowChannel) error {
 		return err
 	}
 
-	_, err = db.Exec("INSERT IGNORE INTO subscribers (chatID, channelID) VALUES (?, ?);", chat.id, channel.id)
+	_, err = db.Exec("INSERT IGNORE INTO subscribers (chatID, channelID) VALUES (?, ?);", chatID, channel.id)
 	if err != nil {
 		return err
 	}

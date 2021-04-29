@@ -105,7 +105,7 @@ func (s *Server) ListenAndServe() {
 	s.initServer()
 
 	// Start server
-	glog.Infoln("Starting server on port", s.port)
+	glog.Info("Starting server on port", s.port)
 	glog.Fatalln(http.ListenAndServe(fmt.Sprintf(":%d", s.port), s.serveMux))
 }
 
@@ -113,7 +113,7 @@ func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 	s.initServer()
 
 	go func() {
-		glog.Infoln("Starting redirect server on port", s.port)
+		glog.Info("Starting redirect server on port", s.port)
 		glog.Fatalln(http.ListenAndServe(
 			fmt.Sprintf(":%d", s.port),
 			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +126,7 @@ func (s *Server) ListenAndServeTLS(certFile, keyFile string) {
 
 	// If host not using web server to provide ssl to tgbot service,
 	// manually setup a ssl server.
-	glog.Infoln("Starting SSL server on port", s.sslPort)
+	glog.Info("Starting SSL server on port", s.sslPort)
 	glog.Fatalln(http.ListenAndServeTLS(fmt.Sprintf(":%d", s.sslPort), certFile, keyFile, s.serveMux))
 }
 
