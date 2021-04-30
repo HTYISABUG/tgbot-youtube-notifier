@@ -934,14 +934,14 @@ func (s *Server) tgSend(c tgbot.Chattable) {
 			switch cfg := c.(type) {
 			case tgbot.MessageConfig:
 				glog.Error(err)
-				fmt.Println(cfg.Text)
+				fmt.Printf("%+v\n", cfg)
 				debug.PrintStack()
-			case tgbot.EditMessageTextConfig:
-				const notModified = "Bad Request: message is not modified"
+			case tgbot.EditMessageTextConfig, tgbot.EditMessageReplyMarkupConfig:
+				const notModified = "message is not modified"
 
-				if !strings.HasPrefix(err.Error(), notModified) {
+				if !strings.Contains(err.Error(), notModified) {
 					glog.Error(err)
-					fmt.Println(cfg.Text)
+					fmt.Printf("%+v\n", cfg)
 					debug.PrintStack()
 				}
 			default:
