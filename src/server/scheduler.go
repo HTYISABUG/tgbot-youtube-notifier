@@ -205,13 +205,11 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 	)
 
 	defer func() {
-		if msgConfig == (tgbot.MessageConfig{}) {
-			return
+		if msgConfig != (tgbot.MessageConfig{}) {
+			msgConfig.DisableNotification = true
+			msgConfig.DisableWebPagePreview = true
+			s.tgSend(msgConfig)
 		}
-
-		msgConfig.DisableNotification = true
-		msgConfig.DisableWebPagePreview = true
-		s.tgSend(msgConfig)
 	}()
 
 	// Check record existence
@@ -244,14 +242,14 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 			return
 		}
 
-		// Send record request to recorder
 		data := make(map[string]interface{})
 
 		// Server info
+		data["action"] = "record"
 		data["remote"] = fmt.Sprintf("%s:%d", s.host, s.sslPort)
 		data["chatID"] = n.chatID
 
-		// Download info
+		// Record info
 		data["url"] = vURL
 		data["platform"] = "YouTube"
 		data["channelID"] = v.Snippet.ChannelId
@@ -280,6 +278,7 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 		// Setup request timeout
 		client := http.Client{Timeout: 5 * time.Second}
 
+		// Send record request to recorder
 		resp, err := client.Do(req)
 		if err != nil {
 			if err.(*url.Error).Timeout() {

@@ -161,8 +161,10 @@ func (s *Server) handlerRelay() {
 					go s.scheduleHandler(update)
 				case "/filter":
 					go s.filterHandler(update)
-				case "~autorecord":
+				case "~autorec":
 					go s.autoRecordHandler(update)
+				case "~dl":
+					go s.downloadHandler(update)
 				}
 			} else if update.CallbackQuery != nil {
 				go s.callbackHandler(update)

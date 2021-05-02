@@ -1,12 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -1136,6 +1138,23 @@ func (s *Server) recorderHandler(w http.ResponseWriter, r *http.Request) {
 	body, _ := ioutil.ReadAll(r.Body)
 
 	var data struct {
+		Action string `json:"action"`
+	}
+
+	_ = json.Unmarshal(body, &data)
+
+	switch data.Action {
+	case "record":
+		s.recorderRecordHandler(w, r, body)
+	case "download":
+		s.recorderDownloadHandler(w, r, body)
+	default:
+		glog.Error("Invalid action type:", data.Action)
+	}
+}
+
+func (s *Server) recorderRecordHandler(w http.ResponseWriter, r *http.Request, body []byte) {
+	var data struct {
 		Success  bool   `json:"success"`
 		ChatID   int64  `json:"chatID"`
 		VideoID  string `json:"videoID"`
@@ -1156,7 +1175,7 @@ func (s *Server) recorderHandler(w http.ResponseWriter, r *http.Request) {
 			data.ChatID,
 			fmt.Sprintf(
 				"Failed to record %s, check your recorder",
-				tgbot.InlineLink(v.Snippet.Title, ytVideoURLPrefix+v.Id),
+				tgbot.InlineLink(tgbot.EscapeText(v.Snippet.Title), ytVideoURLPrefix+v.Id),
 			),
 		)
 		msgConfig.DisableNotification = true
@@ -1199,6 +1218,46 @@ func (s *Server) recorderHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) recorderDownloadHandler(w http.ResponseWriter, r *http.Request, body []byte) {
+	var data struct {
+		Success     bool   `json:"success"`
+		Description string `json:"description"`
+		ChatID      int64  `json:"chatID"`
+		VideoID     string `json:"videoID"`
+		Filename    string `json:"filename"`
+	}
+
+	_ = json.Unmarshal(body, &data)
+
+	if !data.Success {
+		msgConfig := tgbot.NewMessage(
+			data.ChatID,
+			tgbot.EscapeText(data.Description),
+		)
+		msgConfig.DisableNotification = true
+		msgConfig.DisableWebPagePreview = true
+
+		s.tgSend(msgConfig)
+		return
+	}
+
+	extRemoved := data.Filename[:strings.LastIndex(data.Filename, ".")]
+	title := extRemoved[:strings.LastIndex(extRemoved, ".")]
+
+	msgConfig := tgbot.NewMessage(
+		data.ChatID,
+		fmt.Sprintf(
+			"%s downloaded as\n%s",
+			tgbot.InlineLink(tgbot.EscapeText(title), ytVideoURLPrefix+data.VideoID),
+			tgbot.InlineCode(tgbot.EscapeText(data.Filename)),
+		),
+	)
+	msgConfig.DisableNotification = true
+	msgConfig.DisableWebPagePreview = true
+
+	s.tgSend(msgConfig)
+}
+
 func (s *Server) callbackHandler(update tgbot.Update) {
 	callbackID := update.CallbackQuery.ID
 	chatID := update.CallbackQuery.Message.Chat.ID
@@ -1222,4 +1281,91 @@ func (s *Server) callbackHandler(update tgbot.Update) {
 			tgbot.InlineKeyboardMarkup{InlineKeyboard: [][]tgbot.InlineKeyboardButton{{}}})
 		s.tgSend(cfg)
 	}
+}
+
+func (s *Server) downloadHandler(update tgbot.Update) {
+	chatID := update.Message.Chat.ID
+	elements := strings.Fields(update.Message.Text)
+
+	var msgConfig tgbot.MessageConfig
+	var internalServerError tgbot.MessageConfig = tgbot.NewMessage(chatID, "Download request failed, internal server error")
+
+	defer func() {
+		if msgConfig != (tgbot.MessageConfig{}) {
+			msgConfig.DisableNotification = true
+			msgConfig.DisableWebPagePreview = true
+			s.tgSend(msgConfig)
+		}
+	}()
+
+	// Check user recorder existence
+	var recorder, token string
+	err := s.db.QueryRow(
+		"SELECT recorder, token FROM chats WHERE id = ? AND recorder IS NOT NULL AND token IS NOT NULL",
+		chatID,
+	).Scan(&recorder, &token)
+
+	if err != nil {
+		if err != sql.ErrNoRows {
+			glog.Error(err)
+			msgConfig = internalServerError
+		}
+
+		return
+	}
+
+	data := make(map[string]interface{})
+
+	// Server info
+	data["action"] = "download"
+	data["remote"] = fmt.Sprintf("%s:%d", s.host, s.sslPort)
+	data["chatID"] = chatID
+
+	// Record info
+	data["url"] = elements[1:]
+
+	// Encode request body
+	b, err := json.Marshal(data)
+	if err != nil {
+		glog.Error(err)
+		msgConfig = internalServerError
+		return
+	}
+
+	// Create request
+	req, err := http.NewRequest("POST", recorder, bytes.NewReader(b))
+	if err != nil {
+		glog.Error(err)
+		msgConfig = internalServerError
+		return
+	}
+
+	// Add request header
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	// Setup request timeout
+	client := http.Client{Timeout: 5 * time.Second}
+
+	// Send dl request to recorder
+	resp, err := client.Do(req)
+	if err != nil {
+		if err.(*url.Error).Timeout() {
+			msgConfig = tgbot.NewMessage(chatID, "Download request failed, connection timeout")
+		} else {
+			glog.Error(err)
+			msgConfig = internalServerError
+		}
+
+		return
+	} else if resp.StatusCode != http.StatusOK {
+		// Send DL request failed message
+		msgConfig = tgbot.NewMessage(
+			chatID,
+			fmt.Sprintf("Download request failed with status code %d, please check your recorder", resp.StatusCode),
+		)
+		return
+	}
+
+	msgConfig = tgbot.NewMessage(chatID, "Download request has been accepted")
 }
