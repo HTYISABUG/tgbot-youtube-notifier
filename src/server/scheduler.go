@@ -149,8 +149,6 @@ func (s *Server) diligentScheduler(videoID string) {
 					s.tgSend(cfg)
 				}()
 
-				go s.sendDownloadRequest(v, n)
-
 				msgConfig := tgbot.NewMessage(n.chatID, fmt.Sprintf(
 					"%s\n%s",
 					tgbot.EscapeText(v.Snippet.ChannelTitle+" is now live!"),
@@ -162,6 +160,11 @@ func (s *Server) diligentScheduler(videoID string) {
 				msgConfig.DisableWebPagePreview = true
 
 				s.tgSend(msgConfig)
+
+				go func(n rowNotice) {
+					time.Sleep(3 * time.Second)
+					s.sendDownloadRequest(v, n)
+				}(n)
 			}
 
 			return
