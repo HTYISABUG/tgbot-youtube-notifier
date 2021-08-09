@@ -12,18 +12,13 @@ import (
 	"github.com/golang/glog"
 )
 
-var port = flag.Int("port", 8080, "The port for main server to serve from")
 var settingPath = flag.String("setting", "setting.json", "The path of setting file")
 
-var useSSL = flag.Bool("use_ssl", false, "Use standalone ssl server to serve")
-var sslPort = flag.Int("ssl_port", 8443, "The port for ssl server to serve from")
-
-func init() {
-	flag.Parse()
-	glog.CopyStandardLogTo("INFO")
-}
-
 func main() {
+	flag.Parse()                   // Parse cmd arguments.
+	glog.CopyStandardLogTo("INFO") // Redirect std log to glog
+
+	// Load setting file
 	b, err := ioutil.ReadFile(*settingPath)
 	if err != nil {
 		glog.Fatalln(err)
@@ -34,7 +29,8 @@ func main() {
 		glog.Fatalln(err)
 	}
 
-	server, err := server.NewServer(setting, *port, *sslPort)
+	// Initialize server
+	server, err := server.NewServer(setting)
 	if err != nil {
 		glog.Fatalln(err)
 	}
@@ -54,13 +50,5 @@ func main() {
 	}()
 
 	// Start server
-	if !*useSSL {
-		server.ListenAndServe()
-	} else {
-		if setting.CertFile == "" || setting.KeyFile == "" {
-			glog.Error("Using standalone ssl server needs to provide `ssl_cert` & `ssl_key` filepath in setting")
-		}
-
-		server.ListenAndServeTLS(setting.CertFile, setting.KeyFile)
-	}
+	server.ListenAndServe()
 }

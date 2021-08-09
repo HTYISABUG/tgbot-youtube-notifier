@@ -249,7 +249,7 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 
 		// Server info
 		data["action"] = "record"
-		data["remote"] = fmt.Sprintf("%s:%d", s.host, s.sslPort)
+		data["remote"] = fmt.Sprintf("%s:%d", s.host, s.callbackPort)
 		data["chatID"] = n.chatID
 
 		// Record info

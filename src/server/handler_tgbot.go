@@ -25,10 +25,6 @@ func (s *Server) tgSend(c tgbot.Chattable) {
 		switch err.(type) {
 		case tgbot.Error:
 			switch cfg := c.(type) {
-			case tgbot.MessageConfig:
-				glog.Error(err)
-				fmt.Printf("%+v\n", cfg)
-				debug.PrintStack()
 			case tgbot.EditMessageTextConfig, tgbot.EditMessageReplyMarkupConfig:
 				const notModified = "message is not modified"
 
@@ -744,7 +740,7 @@ func (s *Server) downloadHandler(update tgbot.Update) {
 
 	// Server info
 	data["action"] = "download"
-	data["remote"] = fmt.Sprintf("%s:%d", s.host, s.sslPort)
+	data["remote"] = fmt.Sprintf("%s:%d", s.host, s.callbackPort)
 	data["chatID"] = chatID
 
 	// Record info
