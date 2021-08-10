@@ -1,11 +1,13 @@
 package server
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/hub"
+	"github.com/HTYISABUG/tgbot-youtube-notifier/src/recorder"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
 	"github.com/golang/glog"
@@ -27,6 +29,7 @@ type Server struct {
 	notifyCh   <-chan hub.Feed
 
 	diligentTable map[string]bool
+	recorderTable map[int64]recorder.Recorder
 }
 
 // Setting represents server settings
@@ -84,6 +87,7 @@ func NewServer(setting Setting) (*Server, error) {
 		notifyCh:   notifyCh,
 
 		diligentTable: make(map[string]bool),
+		recorderTable: make(map[int64]recorder.Recorder),
 	}
 
 	// Hook recoder service
@@ -110,7 +114,30 @@ func (s *Server) initServer() {
 	go s.handlerRelay()
 
 	// Initialize update scheduler.
-	go s.initScheduler()
+	s.initScheduler()
+
+	// Read existed recorder
+	func() {
+		var chats []recorder.Recorder
+
+		err := s.db.queryResults(
+			&chats,
+			func(rows *sql.Rows, dest interface{}) error {
+				r := dest.(*recorder.Recorder)
+				return rows.Scan(&r.ChatID, &r.Url, &r.Token)
+			},
+			"SELECT id, recorder, token FROM chats WHERE recorder IS NOT NULL AND token IS NOT NULL;",
+		)
+
+		if err != nil {
+			glog.Error(err)
+			return
+		}
+
+		for _, c := range chats {
+			s.recorderTable[c.ChatID] = c
+		}
+	}()
 }
 
 // ListenAndServeTLS starts a HTTPS server using server ServeMux

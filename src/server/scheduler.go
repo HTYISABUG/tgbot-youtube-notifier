@@ -1,10 +1,9 @@
 package server
 
 import (
-	"bytes"
 	"database/sql"
-	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"time"
@@ -38,6 +37,8 @@ func (s *Server) initScheduler() {
 func (s *Server) regularScheduler() {
 	for {
 		s.updateNotifies()
+
+		// TODO: Update recorder status
 
 		// Wait for next period.
 		time.Sleep(updateFrequency)
@@ -225,88 +226,49 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 	if err != nil && err != sql.ErrNoRows {
 		glog.Error(err)
 		msgConfig = internalServerError
-		return
 	} else if exists {
-		// Check user recorder existence
-		var recorder, token sql.NullString
-		err := s.db.QueryRow(
-			"SELECT chats.recorder, chats.token "+
-				"FROM records INNER JOIN chats ON records.chatID = chats.id "+
-				"WHERE records.chatID = ? and records.videoID = ?;",
-			n.chatID, n.videoID,
-		).Scan(&recorder, &token)
+		if r, ok := s.recorderTable[n.chatID]; ok {
+			data := make(map[string]interface{})
 
-		if err != nil && err != sql.ErrNoRows {
-			glog.Error(err)
-			msgConfig = internalServerError
-			return
-		} else if !recorder.Valid || !token.Valid {
-			msgConfig = tgbot.NewMessage(n.chatID, "Recorder unavailable for you")
-			return
-		}
+			data["url"] = vURL
+			data["platform"] = "YouTube"
+			data["channelID"] = v.Snippet.ChannelId
+			data["videoID"] = v.Id
 
-		data := make(map[string]interface{})
+			resp, err := r.Record(fmt.Sprintf("%s:%d", s.host, s.callbackPort), data)
 
-		// Server info
-		data["action"] = "record"
-		data["remote"] = fmt.Sprintf("%s:%d", s.host, s.callbackPort)
-		data["chatID"] = n.chatID
+			if err != nil {
+				if err.(*url.Error).Timeout() {
+					msgConfig = tgbot.NewMessage(
+						n.chatID,
+						fmt.Sprintf("Record %s failed, connection timeout", tgbot.InlineLink(eTitle, vURL)),
+					)
+				} else {
+					glog.Error(err)
+					msgConfig = internalServerError
+				}
+			} else if resp.StatusCode != http.StatusOK {
+				respBody, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					glog.Error(err)
+					msgConfig = internalServerError
+					return
+				}
 
-		// Record info
-		data["url"] = vURL
-		data["platform"] = "YouTube"
-		data["channelID"] = v.Snippet.ChannelId
-		data["videoID"] = v.Id
-
-		// Encode request body
-		b, err := json.Marshal(data)
-		if err != nil {
-			glog.Error(err)
-			msgConfig = internalServerError
-			return
-		}
-
-		// Create request
-		req, err := http.NewRequest("POST", recorder.String, bytes.NewReader(b))
-		if err != nil {
-			glog.Error(err)
-			msgConfig = internalServerError
-			return
-		}
-
-		// Add request header
-		req.Header.Add("Content-Type", "application/json")
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token.String))
-
-		// Setup request timeout
-		client := http.Client{Timeout: 5 * time.Second}
-
-		// Send record request to recorder
-		resp, err := client.Do(req)
-		if err != nil {
-			if err.(*url.Error).Timeout() {
+				fmt.Println(string(respBody))
 				msgConfig = tgbot.NewMessage(
 					n.chatID,
-					fmt.Sprintf("Record %s failed, connection timeout", tgbot.InlineLink(eTitle, vURL)),
+					fmt.Sprintf("Record request failed with status code %d, please check your recorder", resp.StatusCode),
 				)
 			} else {
-				glog.Error(err)
-				msgConfig = internalServerError
+				msgConfig = tgbot.NewMessage(
+					n.chatID,
+					fmt.Sprintf("Start recording %s", tgbot.InlineLink(tgbot.EscapeText(v.Snippet.Title), ytVideoURLPrefix+v.Id)),
+				)
 			}
 
-			return
-		} else if resp.StatusCode != http.StatusOK {
-			// Send DL request failed message
-			msgConfig = tgbot.NewMessage(
-				n.chatID,
-				fmt.Sprintf("Record request failed with status code %d, please check your recorder", resp.StatusCode),
-			)
-			return
+		} else {
+			msgConfig = tgbot.NewMessage(n.chatID, "Recorder unavailable for you")
 		}
-
-		msgConfig = tgbot.NewMessage(
-			n.chatID,
-			fmt.Sprintf("Start recording %s", tgbot.InlineLink(tgbot.EscapeText(v.Snippet.Title), ytVideoURLPrefix+v.Id)),
-		)
 	}
 }

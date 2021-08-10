@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -720,74 +718,28 @@ func (s *Server) downloadHandler(update tgbot.Update) {
 		}
 	}()
 
-	// Check user recorder existence
-	var recorder, token string
-	err := s.db.QueryRow(
-		"SELECT recorder, token FROM chats WHERE id = ? AND recorder IS NOT NULL AND token IS NOT NULL",
-		chatID,
-	).Scan(&recorder, &token)
+	if r, ok := s.recorderTable[chatID]; ok {
+		data := make(map[string]interface{})
 
-	if err != nil {
-		if err != sql.ErrNoRows {
-			glog.Error(err)
-			msgConfig = internalServerError
-		}
+		data["url"] = elements[1:]
 
-		return
-	}
+		resp, err := r.Download(fmt.Sprintf("%s:%d", s.host, s.callbackPort), data)
 
-	data := make(map[string]interface{})
-
-	// Server info
-	data["action"] = "download"
-	data["remote"] = fmt.Sprintf("%s:%d", s.host, s.callbackPort)
-	data["chatID"] = chatID
-
-	// Record info
-	data["url"] = elements[1:]
-
-	// Encode request body
-	b, err := json.Marshal(data)
-	if err != nil {
-		glog.Error(err)
-		msgConfig = internalServerError
-		return
-	}
-
-	// Create request
-	req, err := http.NewRequest("POST", recorder, bytes.NewReader(b))
-	if err != nil {
-		glog.Error(err)
-		msgConfig = internalServerError
-		return
-	}
-
-	// Add request header
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	// Setup request timeout
-	client := http.Client{Timeout: 5 * time.Second}
-
-	// Send dl request to recorder
-	resp, err := client.Do(req)
-	if err != nil {
-		if err.(*url.Error).Timeout() {
-			msgConfig = tgbot.NewMessage(chatID, "Download request failed, connection timeout")
+		if err != nil {
+			if err.(*url.Error).Timeout() {
+				msgConfig = tgbot.NewMessage(chatID, "Download request failed, connection timeout")
+			} else {
+				glog.Error(err)
+				msgConfig = internalServerError
+			}
+		} else if resp.StatusCode != http.StatusOK {
+			// Send DL request failed message
+			msgConfig = tgbot.NewMessage(
+				chatID,
+				fmt.Sprintf("Download request failed with status code %d, please check your recorder", resp.StatusCode),
+			)
 		} else {
-			glog.Error(err)
-			msgConfig = internalServerError
+			msgConfig = tgbot.NewMessage(chatID, "Download request has been accepted")
 		}
-
-		return
-	} else if resp.StatusCode != http.StatusOK {
-		// Send DL request failed message
-		msgConfig = tgbot.NewMessage(
-			chatID,
-			fmt.Sprintf("Download request failed with status code %d, please check your recorder", resp.StatusCode),
-		)
-		return
 	}
-
-	msgConfig = tgbot.NewMessage(chatID, "Download request has been accepted")
 }
