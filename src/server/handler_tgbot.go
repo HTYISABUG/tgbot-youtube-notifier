@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"runtime/debug"
@@ -723,7 +724,7 @@ func (s *Server) downloadHandler(update tgbot.Update) {
 
 		data["url"] = elements[1:]
 
-		resp, err := r.Download(fmt.Sprintf("%s:%d", s.host, s.callbackPort), data)
+		resp, err := r.Download(s.CallbackUrl(), data)
 
 		if err != nil {
 			if err.(*url.Error).Timeout() {
@@ -733,7 +734,14 @@ func (s *Server) downloadHandler(update tgbot.Update) {
 				msgConfig = internalServerError
 			}
 		} else if resp.StatusCode != http.StatusOK {
-			// Send DL request failed message
+			respBody, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				glog.Error(err)
+				msgConfig = internalServerError
+				return
+			}
+
+			fmt.Println(string(respBody))
 			msgConfig = tgbot.NewMessage(
 				chatID,
 				fmt.Sprintf("Download request failed with status code %d, please check your recorder", resp.StatusCode),

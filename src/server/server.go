@@ -15,34 +15,20 @@ import (
 
 // Server is a main server which integrated all function in this project.
 type Server struct {
+	Setting
+
 	hub *hub.Client
 	tg  *tgbot.TgBot
 	yt  *ytapi.YtAPI
 	db  *database
 
-	host         string
-	servicePort  int
-	callbackPort int
-	serveMux     *http.ServeMux
+	serveMux *http.ServeMux
 
-	tgUpdateCh tgbot.UpdatesChannel
-	notifyCh   <-chan hub.Feed
+	tgUpdatesCh tgbot.UpdatesChannel
+	hubFeedsCh  hub.FeedsChannel
 
 	diligentTable map[string]bool
 	recorderTable map[int64]recorder.Recorder
-}
-
-// Setting represents server settings
-type Setting struct {
-	Host         string `json:"host"`
-	ServicePort  int    `json:"service_port"`
-	CallbackPort int    `json:"callback_port"`
-
-	BotToken string `json:"bot_token"`
-	DBPath   string `json:"database"`
-	YtAPIKey string `json:"yt_api_key"`
-	CertFile string `json:"ssl_cert"`
-	KeyFile  string `json:"ssl_key"`
 }
 
 // NewServer returns a pointer to a new `Server` object.
@@ -51,7 +37,7 @@ func NewServer(setting Setting) (*Server, error) {
 	mux := new(http.ServeMux)
 
 	// Initialize notifies hub
-	hub, notifyCh := hub.NewClient(fmt.Sprintf("%s:%d", setting.Host, setting.CallbackPort), mux)
+	hub, hubFeedsCh := hub.NewClient(setting.CallbackUrl(), mux)
 
 	// Initialize tgbot api
 	tg, err := tgbot.NewTgBot(setting.BotToken)
@@ -69,22 +55,21 @@ func NewServer(setting Setting) (*Server, error) {
 	}
 
 	// Hook tgbot service
-	tgUpdateCh := tg.ListenForWebhook("/tgbot", mux)
+	tgUpdatesCh := tg.ListenForWebhook("/tgbot", mux)
 
 	// Initialize smain server
 	server := &Server{
+		Setting: setting,
+
 		hub: hub,
 		tg:  tg,
 		yt:  yt,
 		db:  db,
 
-		host:         setting.Host,
-		servicePort:  setting.ServicePort,
-		callbackPort: setting.CallbackPort,
-		serveMux:     mux,
+		serveMux: mux,
 
-		tgUpdateCh: tgUpdateCh,
-		notifyCh:   notifyCh,
+		tgUpdatesCh: tgUpdatesCh,
+		hubFeedsCh:  hubFeedsCh,
 
 		diligentTable: make(map[string]bool),
 		recorderTable: make(map[int64]recorder.Recorder),
@@ -97,15 +82,7 @@ func NewServer(setting Setting) (*Server, error) {
 }
 
 func (s *Server) initServer() {
-	// Recover all subscribed channels
-	channels, err := s.db.getChannels()
-	if err != nil {
-		glog.Fatalln(err)
-	}
-
-	for _, ch := range channels {
-		s.hub.Subscribe(ch.id)
-	}
+	s.recoverSubscriptions()
 
 	// Run hub subscription requests.
 	go s.hub.Start()
@@ -117,27 +94,40 @@ func (s *Server) initServer() {
 	s.initScheduler()
 
 	// Read existed recorder
-	func() {
-		var chats []recorder.Recorder
+	s.getRecorders()
+}
 
-		err := s.db.queryResults(
-			&chats,
-			func(rows *sql.Rows, dest interface{}) error {
-				r := dest.(*recorder.Recorder)
-				return rows.Scan(&r.ChatID, &r.Url, &r.Token)
-			},
-			"SELECT id, recorder, token FROM chats WHERE recorder IS NOT NULL AND token IS NOT NULL;",
-		)
+func (s *Server) recoverSubscriptions() {
+	channels, err := s.db.getChannels()
+	if err != nil {
+		glog.Fatalln(err)
+	}
 
-		if err != nil {
-			glog.Error(err)
-			return
-		}
+	for _, ch := range channels {
+		s.hub.Subscribe(ch.id)
+	}
+}
 
-		for _, c := range chats {
-			s.recorderTable[c.ChatID] = c
-		}
-	}()
+func (s *Server) getRecorders() {
+	var chats []recorder.Recorder
+
+	err := s.db.queryResults(
+		&chats,
+		func(rows *sql.Rows, dest interface{}) error {
+			r := dest.(*recorder.Recorder)
+			return rows.Scan(&r.ChatID, &r.Url, &r.Token)
+		},
+		"SELECT id, recorder, token FROM chats WHERE recorder IS NOT NULL AND token IS NOT NULL;",
+	)
+
+	if err != nil {
+		glog.Error(err)
+		return
+	}
+
+	for _, c := range chats {
+		s.recorderTable[c.ChatID] = c
+	}
 }
 
 // ListenAndServeTLS starts a HTTPS server using server ServeMux
@@ -145,8 +135,8 @@ func (s *Server) ListenAndServe() {
 	s.initServer()
 
 	// Start server
-	glog.Info("Starting server on port", s.servicePort)
-	glog.Fatalln(http.ListenAndServe(fmt.Sprintf(":%d", s.servicePort), s.serveMux))
+	glog.Info("Starting server on port", s.ServicePort)
+	glog.Fatalln(http.ListenAndServe(fmt.Sprintf(":%d", s.ServicePort), s.serveMux))
 }
 
 // Close stops the main server and run clean up procedures.
@@ -165,7 +155,7 @@ func (s *Server) handlerRelay() {
 	for {
 		select {
 		// Tgbot handler
-		case update := <-s.tgUpdateCh:
+		case update := <-s.tgUpdatesCh:
 			if update.Message != nil && update.Message.Text != "" {
 				elements := strings.Fields(update.Message.Text)
 				switch elements[0] {
@@ -181,7 +171,7 @@ func (s *Server) handlerRelay() {
 					go s.scheduleHandler(update)
 				case "/filter":
 					go s.filterHandler(update)
-				case "~autorec":
+				case "~autorc":
 					go s.autoRecordHandler(update)
 				case "~dl":
 					go s.downloadHandler(update)
@@ -190,7 +180,7 @@ func (s *Server) handlerRelay() {
 				go s.callbackHandler(update)
 			}
 		// Hub notifies handler
-		case feed := <-s.notifyCh:
+		case feed := <-s.hubFeedsCh:
 			go s.noticeHandler(feed)
 		}
 	}

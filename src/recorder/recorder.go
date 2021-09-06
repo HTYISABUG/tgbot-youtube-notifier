@@ -15,14 +15,14 @@ type Recorder struct {
 }
 
 func (rc Recorder) Record(callbackUrl string, data map[string]interface{}) (*http.Response, error) {
-	data["remote"] = callbackUrl
+	data["callback"] = callbackUrl
 	data["chatID"] = rc.ChatID
 	data["action"] = "record"
 	return rc.request(data)
 }
 
 func (rc Recorder) Download(callbackUrl string, data map[string]interface{}) (*http.Response, error) {
-	data["remote"] = callbackUrl
+	data["callback"] = callbackUrl
 	data["chatID"] = rc.ChatID
 	data["action"] = "download"
 	return rc.request(data)

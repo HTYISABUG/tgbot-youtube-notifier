@@ -235,7 +235,7 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 			data["channelID"] = v.Snippet.ChannelId
 			data["videoID"] = v.Id
 
-			resp, err := r.Record(fmt.Sprintf("%s:%d", s.host, s.callbackPort), data)
+			resp, err := r.Record(s.CallbackUrl()+"/recorder", data)
 
 			if err != nil {
 				if err.(*url.Error).Timeout() {
@@ -266,7 +266,6 @@ func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
 					fmt.Sprintf("Start recording %s", tgbot.InlineLink(tgbot.EscapeText(v.Snippet.Title), ytVideoURLPrefix+v.Id)),
 				)
 			}
-
 		} else {
 			msgConfig = tgbot.NewMessage(n.chatID, "Recorder unavailable for you")
 		}
