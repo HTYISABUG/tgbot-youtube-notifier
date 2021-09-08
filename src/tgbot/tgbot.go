@@ -74,6 +74,13 @@ func NewEditMessageText(chatID int64, messageID int, text string) EditMessageTex
 	return editMsgConfig
 }
 
+// NewEditMessageTextAndMarkup allows you to edit the text and replymarkup of a message.
+func NewEditMessageTextAndMarkup(chatID int64, messageID int, text string, replyMarkup InlineKeyboardMarkup) EditMessageTextConfig {
+	editMsgConfig := api.NewEditMessageTextAndMarkup(chatID, messageID, text, replyMarkup)
+	editMsgConfig.ParseMode = "MarkdownV2"
+	return editMsgConfig
+}
+
 // NewDeleteMessage creates a request to delete a message.
 func NewDeleteMessage(chatID int64, messageID int) DeleteMessageConfig {
 	return api.NewDeleteMessage(chatID, messageID)

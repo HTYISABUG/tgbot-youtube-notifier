@@ -73,7 +73,7 @@ func (s *Server) updateNotifies() {
 	for _, v := range videos {
 		// Send or update notifies.
 		go func(v *youtube.Video) {
-			s.sendVideoNotify(v)
+			s.sendNotices(v)
 			s.tryDiligentScheduler(v)
 		}(v)
 	}
@@ -125,7 +125,7 @@ func (s *Server) diligentScheduler(videoID string) {
 			return
 		}
 
-		s.sendVideoNotify(v)
+		s.sendNotices(v)
 
 		// Get remaining time
 		t, _ := time.Parse(time.RFC3339, v.LiveStreamingDetails.ScheduledStartTime)
@@ -162,7 +162,7 @@ func (s *Server) diligentScheduler(videoID string) {
 
 				s.tgSend(msgConfig)
 
-				go func(n rowNotice) {
+				go func(n Notice) {
 					time.Sleep(3 * time.Second)
 					s.sendDownloadRequest(v, n)
 				}(n)
@@ -198,7 +198,7 @@ func getWaitingDuration(t time.Duration) time.Duration {
 	return 0
 }
 
-func (s *Server) sendDownloadRequest(v *youtube.Video, n rowNotice) {
+func (s *Server) sendDownloadRequest(v *youtube.Video, n Notice) {
 	eTitle := tgbot.EscapeText(v.Snippet.Title)
 	vURL := ytVideoURLPrefix + v.Id
 

@@ -14,7 +14,6 @@ import (
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
 	"github.com/golang/glog"
-	"google.golang.org/api/youtube/v3"
 )
 
 func (s *Server) noticeHandler(feed hub.Feed) {
@@ -74,7 +73,7 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 			return
 		}
 
-		s.sendVideoNotify(v)
+		s.sendNotices(v)
 		s.setupVideoAutoRecorder(v)
 		s.tryDiligentScheduler(v)
 
@@ -122,160 +121,6 @@ func (s *Server) noticeHandler(feed hub.Feed) {
 	} else {
 		glog.Warning(errors.New("receive a empty feed"))
 	}
-}
-
-func (s *Server) sendVideoNotify(video *ytapi.Video) {
-	// Query subscribed chats from db according to channel id.
-	var chIDs []int64
-
-	err := s.db.queryResults(
-		&chIDs,
-		func(rows *sql.Rows, dest interface{}) error {
-			r := dest.(*int64)
-			return rows.Scan(r)
-		},
-		"SELECT chats.id FROM "+
-			"chats INNER JOIN subscribers ON chats.id = subscribers.chatID "+
-			"WHERE subscribers.channelID = ?;",
-		video.Snippet.ChannelId,
-	)
-
-	if err != nil {
-		glog.Error(err)
-		return
-	}
-
-	// Insert or ignore new rows to notices table.
-	for _, cid := range chIDs {
-		b, err := s.applyFilters(cid, video)
-		if err != nil {
-			glog.Error(err)
-			continue
-		} else if !b { // No pass
-			continue
-		}
-
-		if _, err := s.db.Exec(
-			"INSERT IGNORE INTO notices (videoID, chatID, messageID) VALUES (?, ?, ?);",
-			video.Id, cid, -1,
-		); err != nil {
-			glog.Error(err)
-		}
-	}
-
-	// Query notice rows according to video id.
-	notices, err := s.db.getNoticesByVideoID(video.Id)
-	if err != nil {
-		glog.Error(err)
-		return
-	}
-
-	for _, n := range notices {
-		if n.messageID == -1 {
-			// If this chat still not being notified, send new notify message.
-			msgConfig := tgbot.NewMessage(n.chatID, newNotifyMessageText(video))
-
-			cond, err := s.isRecordButtonShowCondition(n.chatID, video)
-			if err != nil {
-				glog.Error(err)
-			} else if cond {
-				button := tgbot.NewInlineKeyboardButtonData("Record", video.Id)
-				row := tgbot.NewInlineKeyboardRow(button)
-				markup := tgbot.NewInlineKeyboardMarkup(row)
-				msgConfig.ReplyMarkup = markup
-			}
-
-			// Send message
-			message, err := s.tg.Send(msgConfig)
-			if err != nil {
-				switch err.(type) {
-				case tgbot.Error:
-					glog.Error(err)
-					fmt.Println(msgConfig.Text)
-				default:
-					glog.Warning(err)
-				}
-			}
-
-			n.messageID = message.MessageID
-			if _, err := s.db.Exec(
-				"UPDATE notices SET messageID = ? WHERE videoID = ? AND chatID = ?;",
-				n.messageID, n.videoID, n.chatID,
-			); err != nil {
-				glog.Error(err)
-			}
-		} else {
-			// If this chat has be notified, edit existing notify message.
-			editMsgConfig := tgbot.NewEditMessageText(n.chatID, n.messageID, newNotifyMessageText(video))
-
-			cond, err := s.isRecordButtonShowCondition(n.chatID, video)
-			if err != nil {
-				glog.Error(err)
-			} else if cond {
-				button := tgbot.NewInlineKeyboardButtonData("Record", video.Id)
-				row := tgbot.NewInlineKeyboardRow(button)
-				markup := tgbot.NewInlineKeyboardMarkup(row)
-				editMsgConfig.ReplyMarkup = &markup
-			}
-
-			s.tgSend(editMsgConfig)
-		}
-	}
-
-	// It's a completed live.
-	if ytapi.IsCompletedLiveBroadcast(video) {
-		// Tag it as completed in videos table.
-		_, err := s.db.Exec("UPDATE videos SET completed = ? WHERE id = ?;", true, video.Id)
-		if err != nil {
-			glog.Error(err)
-		}
-
-		// Remove it from notices table.
-		if _, err := s.db.Exec("DELETE FROM notices WHERE videoID = ?;", video.Id); err != nil {
-			glog.Error(err)
-		}
-	}
-}
-
-func (s *Server) isRecordButtonShowCondition(chatID int64, video *youtube.Video) (bool, error) {
-	// Check user recorder existence
-	var exist bool
-	err := s.db.QueryRow(
-		"SELECT EXISTS(SELECT * FROM chats WHERE id = ? AND recorder IS NOT NULL AND token IS NOT NULL);",
-		chatID,
-	).Scan(&exist)
-
-	if err != nil {
-		return false, err
-	} else if !exist {
-		return false, nil
-	}
-
-	// Check autorecorder existence
-	err = s.db.QueryRow(
-		"SELECT EXISTS(SELECT * FROM autorecords WHERE chatID = ? AND channelID = ?);",
-		chatID, video.Snippet.ChannelId,
-	).Scan(&exist)
-
-	if err != nil {
-		return false, err
-	} else if exist {
-		return false, nil
-	}
-
-	// Check recorder existence
-	err = s.db.QueryRow(
-		"SELECT EXISTS(SELECT * FROM records WHERE chatID = ? AND videoID = ?);",
-		chatID, video.Id,
-	).Scan(&exist)
-
-	if err != nil {
-		return false, err
-	} else if exist {
-		return false, nil
-	}
-
-	return true, nil
 }
 
 func (s *Server) setupVideoAutoRecorder(video *ytapi.Video) {
@@ -564,26 +409,134 @@ func (s *Server) recorderDownloadHandler(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) callbackHandler(update tgbot.Update) {
+	// Basic callback info
 	callbackID := update.CallbackQuery.ID
 	chatID := update.CallbackQuery.Message.Chat.ID
 	msgID := update.CallbackQuery.Message.MessageID
-	videoID := update.CallbackQuery.Data
+
+	// Decode callback data
+	data := make(map[string]interface{})
+	json.Unmarshal([]byte(update.CallbackQuery.Data), &data)
 
 	var cfg tgbot.CallbackConfig
 
-	if _, err := s.db.Exec(
-		"INSERT IGNORE INTO records (chatID, videoID) VALUES (?, ?);",
-		chatID, videoID,
-	); err != nil {
-		glog.Error(err)
-		cfg = tgbot.NewCallback(callbackID, "Internal server error")
-		s.tg.AnswerCallbackQuery(cfg)
-	} else {
-		cfg = tgbot.NewCallback(callbackID, fmt.Sprintf("Add %s recorder", videoID))
-		s.tg.AnswerCallbackQuery(cfg)
+	switch data["type"] {
+	case "record":
+		videoID := data["videoID"]
 
-		cfg := tgbot.NewEditMessageReplyMarkup(chatID, msgID,
-			tgbot.InlineKeyboardMarkup{InlineKeyboard: [][]tgbot.InlineKeyboardButton{{}}})
+		if _, err := s.db.Exec(
+			"INSERT IGNORE INTO records (chatID, videoID) VALUES (?, ?);",
+			chatID, videoID,
+		); err != nil {
+			glog.Error(err)
+			cfg = tgbot.NewCallback(callbackID, "Internal server error")
+			s.tg.AnswerCallbackQuery(cfg)
+		} else {
+			cfg = tgbot.NewCallback(callbackID, fmt.Sprintf("Add %s recorder", videoID))
+			s.tg.AnswerCallbackQuery(cfg)
+
+			cfg := tgbot.NewEditMessageReplyMarkup(chatID, msgID,
+				tgbot.InlineKeyboardMarkup{InlineKeyboard: [][]tgbot.InlineKeyboardButton{{}}})
+			s.tgSend(cfg)
+		}
+	case "list":
+		channelID, ok := data["channelID"]
+		if !ok {
+			// Turn page
+			page := data["page"]
+			markup, err := s.newChannelListMarkUp(chatID, int(page.(float64)))
+			if err != nil {
+				glog.Error(err)
+			} else {
+				cfg := tgbot.NewEditMessageReplyMarkup(chatID, msgID, *markup)
+				s.tgSend(cfg)
+			}
+		} else {
+			// Subscribed channel operation
+			delete(data, "channelID")
+			b, _ := json.Marshal(data)
+			cancel := tgbot.NewInlineKeyboardButtonData("Cancel", string(b))
+
+			data := make(map[string]interface{})
+			data["type"] = "remove"
+			data["channelID"] = channelID
+
+			// Get channel title
+			var channelTitle string
+			err := s.db.QueryRow("SELECT title FROM channels WHERE id = ?;", channelID).Scan(&channelTitle)
+			if err != nil {
+				glog.Error(err)
+				cfg = tgbot.NewCallback(callbackID, "Internal server error")
+				s.tg.AnswerCallbackQuery(cfg)
+				return
+			}
+
+			b, _ = json.Marshal(data)
+			remove := tgbot.NewInlineKeyboardButtonData("Remove", string(b))
+
+			row := tgbot.NewInlineKeyboardRow(remove, cancel)
+			markup := tgbot.NewInlineKeyboardMarkup(row)
+
+			link := tgbot.InlineLink(tgbot.EscapeText(channelTitle), "https://www.youtube.com/channel/"+channelID.(string))
+			cfg := tgbot.NewEditMessageTextAndMarkup(chatID, msgID, fmt.Sprintf("Do you want to remove %s?", link), markup)
+			s.tgSend(cfg)
+		}
+	case "remove":
+		channelID := data["channelID"].(string)
+
+		// Get channel title
+		var channelTitle string
+		err := s.db.QueryRow("SELECT title FROM channels WHERE id = ?;", channelID).Scan(&channelTitle)
+		if err != nil {
+			glog.Error(err)
+			cfg = tgbot.NewCallback(callbackID, "Internal server error")
+			s.tg.AnswerCallbackQuery(cfg)
+			return
+		}
+
+		// Remove subscription
+		_, err = s.db.Exec("DELETE FROM subscribers WHERE chatID = ? AND channelID = ?;", chatID, channelID)
+		if err != nil {
+			glog.Error(err)
+			cfg = tgbot.NewCallback(callbackID, "Internal server error")
+			s.tg.AnswerCallbackQuery(cfg)
+			return
+		}
+
+		link := tgbot.InlineLink(tgbot.EscapeText(channelTitle), "https://www.youtube.com/channel/"+channelID)
+		cfg := tgbot.NewEditMessageText(chatID, msgID, fmt.Sprintf("You already unsubscribe\n%s", link))
 		s.tgSend(cfg)
+
+		// Check not subscribed channels & unsubscribe them from hub
+		go func() {
+			var channelIDs []string
+
+			err := s.db.queryResults(
+				&channelIDs,
+				func(rows *sql.Rows, dest interface{}) error {
+					r := dest.(*string)
+					return rows.Scan(r)
+				},
+				"SELECT channels.id FROM "+
+					"channels LEFT JOIN subscribers ON channels.id = subscribers.channelID "+
+					"WHERE subscribers.chatID IS NULL;",
+			)
+
+			if err != nil {
+				glog.Error(err)
+				return
+			}
+
+			for _, id := range channelIDs {
+				if _, err := s.db.Exec("DELETE FROM channels WHERE id = ?;", id); err != nil {
+					glog.Error(err)
+					continue
+				}
+
+				s.hub.Unsubscribe(id)
+			}
+		}()
+	default:
+		glog.Errorf("Invalid callback type: %v", data["type"])
 	}
 }

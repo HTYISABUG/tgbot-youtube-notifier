@@ -2,6 +2,7 @@ package server
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -84,7 +85,7 @@ func (s *Server) chAddHandler(update tgbot.Update) {
 			} else {
 				title = c.Snippet.Title
 				// Insert into database.
-				if err := s.db.subscribe(chatID, rowChannel{id: c.Id, title: c.Snippet.Title}); err != nil {
+				if err := s.db.subscribe(chatID, Channel{id: c.Id, title: c.Snippet.Title}); err != nil {
 					glog.Warning(err)
 					msgTemplate = "%s %s failed.\nInternal server error."
 				}
@@ -136,22 +137,72 @@ func (s *Server) chListHandler(update tgbot.Update) {
 		s.tgSend(msgConfig)
 	}()
 
-	channels, err := s.db.getChannelsByChatID(chatID)
+	markup, err := s.newChannelListMarkUp(chatID, 0)
 	if err != nil {
 		glog.Error(err)
 		msgConfig = tgbot.NewMessage(chatID, "Can not list subscribed channels.\nInternal server error.")
 	} else {
-		list := []string{"You already subscribed following channels:"}
+		msgConfig = tgbot.NewMessage(chatID, "You already subscribed following channels:")
+		msgConfig.ReplyMarkup = markup
+	}
+}
 
-		for i, ch := range channels {
-			chLink := tgbot.InlineLink(
-				tgbot.EscapeText(ch.title),
-				"https://www.youtube.com/channel/"+ch.id,
-			)
-			list = append(list, fmt.Sprintf("%2d\\|\t%s", i, chLink))
+func (s *Server) newChannelListMarkUp(chatID int64, page int) (*tgbot.InlineKeyboardMarkup, error) {
+	const MAX_LIST_LENGTH = 5
+
+	channels, err := s.db.getChannelsByChatID(chatID)
+	if err != nil {
+		return nil, err
+	} else {
+		var rows [][]tgbot.InlineKeyboardButton
+
+		// Limited list length
+		offset := page * MAX_LIST_LENGTH
+		length := len(channels) - offset
+		if length > MAX_LIST_LENGTH {
+			length = MAX_LIST_LENGTH
 		}
 
-		msgConfig = tgbot.NewMessage(chatID, strings.Join(list, "\n"))
+		for i := offset; i < offset+length; i++ {
+			data := make(map[string]interface{})
+			data["type"] = "list"
+			data["page"] = page
+			data["channelID"] = channels[i].id
+			b, _ := json.Marshal(data)
+
+			button := tgbot.NewInlineKeyboardButtonData(channels[i].title, string(b))
+			row := tgbot.NewInlineKeyboardRow(button)
+			rows = append(rows, row)
+		}
+
+		var buttons []tgbot.InlineKeyboardButton
+
+		if page != 0 {
+			data := make(map[string]interface{})
+			data["type"] = "list"
+			data["page"] = page - 1
+			b, _ := json.Marshal(data)
+			button := tgbot.NewInlineKeyboardButtonData("←", string(b))
+			buttons = append(buttons, button)
+		}
+
+		if len(channels)-offset > MAX_LIST_LENGTH {
+			data := make(map[string]interface{})
+			data["type"] = "list"
+			data["page"] = page + 1
+			b, _ := json.Marshal(data)
+			button := tgbot.NewInlineKeyboardButtonData("→", string(b))
+			buttons = append(buttons, button)
+		}
+
+		if len(buttons) != 0 {
+			row := tgbot.NewInlineKeyboardRow(buttons...)
+			rows = append(rows, row)
+		}
+
+		markup := tgbot.NewInlineKeyboardMarkup(rows...)
+
+		return &markup, nil
 	}
 }
 
@@ -567,12 +618,12 @@ func (s *Server) autoRecordHandler(update tgbot.Update) {
 
 	// Show all autorecords.
 	if show {
-		var channels []rowChannel
+		var channels []Channel
 
 		err := s.db.queryResults(
 			&channels,
 			func(rows *sql.Rows, dest interface{}) error {
-				ch := dest.(*rowChannel)
+				ch := dest.(*Channel)
 				return rows.Scan(&ch.id, &ch.title)
 			},
 			"SELECT channels.id, channels.title "+

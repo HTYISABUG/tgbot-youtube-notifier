@@ -77,19 +77,8 @@ func newDatabase(dataSourceName string) (*database, error) {
 	return &database{DB: db}, nil
 }
 
-type rowChannel struct {
-	id    string
-	title string
-}
-
-type rowNotice struct {
-	videoID   string
-	chatID    int64
-	messageID int
-}
-
 // Subscribe registers info into corresponding table
-func (db *database) subscribe(chatID int64, channel rowChannel) error {
+func (db *database) subscribe(chatID int64, channel Channel) error {
 	_, err := db.Exec("INSERT IGNORE INTO chats (id) VALUES (?);", chatID)
 	if err != nil {
 		return err
@@ -108,13 +97,13 @@ func (db *database) subscribe(chatID int64, channel rowChannel) error {
 	return nil
 }
 
-func (db *database) getChannels() ([]rowChannel, error) {
-	var channels []rowChannel
+func (db *database) getChannels() ([]Channel, error) {
+	var channels []Channel
 
 	err := db.queryResults(
 		&channels,
 		func(rows *sql.Rows, dest interface{}) error {
-			r := dest.(*rowChannel)
+			r := dest.(*Channel)
 			return rows.Scan(&r.id, &r.title)
 		},
 		"SELECT id, title FROM channels;",
@@ -127,13 +116,13 @@ func (db *database) getChannels() ([]rowChannel, error) {
 	return channels, nil
 }
 
-func (db *database) getChannelsByChatID(chatID int64) ([]rowChannel, error) {
-	var channels []rowChannel
+func (db *database) getChannelsByChatID(chatID int64) ([]Channel, error) {
+	var results []Channel
 
 	err := db.queryResults(
-		&channels,
+		&results,
 		func(rows *sql.Rows, dest interface{}) error {
-			ch := dest.(*rowChannel)
+			ch := dest.(*Channel)
 			return rows.Scan(&ch.id, &ch.title)
 		},
 		"SELECT channels.id, channels.title FROM "+
@@ -146,20 +135,42 @@ func (db *database) getChannelsByChatID(chatID int64) ([]rowChannel, error) {
 		return nil, err
 	}
 
-	return channels, nil
+	return results, nil
 }
 
-func (db *database) getNoticesByVideoID(videoID string) ([]rowNotice, error) {
-	var results []rowNotice
+func (db *database) getNoticesByVideoID(videoID string) ([]Notice, error) {
+	var results []Notice
 
 	err := db.queryResults(
 		&results,
 		func(rows *sql.Rows, dest interface{}) error {
-			r := dest.(*rowNotice)
+			r := dest.(*Notice)
 			return rows.Scan(&r.videoID, &r.chatID, &r.messageID)
 		},
 		"SELECT videoID, chatID, messageID FROM notices WHERE videoID = ?;",
 		videoID,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+func (db *database) getChatsByChannelID(channelID string) ([]Chat, error) {
+	var results []Chat
+
+	err := db.queryResults(
+		&results,
+		func(rows *sql.Rows, dest interface{}) error {
+			r := dest.(*Chat)
+			return rows.Scan(&r.id, &r.recorder, &r.token)
+		},
+		"SELECT id, recorder, token FROM "+
+			"chats INNER JOIN subscribers ON chats.id = subscribers.chatID "+
+			"WHERE subscribers.channelID = ?;",
+		channelID,
 	)
 
 	if err != nil {
