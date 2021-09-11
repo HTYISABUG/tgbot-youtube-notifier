@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
@@ -55,7 +54,7 @@ func (s *Server) sendNotices(video *ytapi.Video) {
 			msgConfig := tgbot.NewMessage(n.chatID, newNotifyMessageText(video))
 
 			if show {
-				markup := newRecordButton(video.Id)
+				markup, _ := s.newRecordButtonMarkup(video.Id)
 				msgConfig.ReplyMarkup = markup
 			}
 
@@ -83,8 +82,8 @@ func (s *Server) sendNotices(video *ytapi.Video) {
 			editMsgConfig := tgbot.NewEditMessageText(n.chatID, n.messageID, newNotifyMessageText(video))
 
 			if show {
-				markup := newRecordButton(video.Id)
-				editMsgConfig.ReplyMarkup = &markup
+				markup, _ := s.newRecordButtonMarkup(video.Id)
+				editMsgConfig.ReplyMarkup = markup
 			}
 
 			s.tgSend(editMsgConfig)
@@ -165,16 +164,4 @@ func (s *Server) isRecordExist(chatID int64, videoID string) (bool, error) {
 	} else {
 		return exist, nil
 	}
-}
-
-func newRecordButton(videoID string) tgbot.InlineKeyboardMarkup {
-	data := make(map[string]interface{})
-	data["type"] = "record"
-	data["videoID"] = videoID
-	b, _ := json.Marshal(data)
-
-	button := tgbot.NewInlineKeyboardButtonData("Record", string(b))
-	row := tgbot.NewInlineKeyboardRow(button)
-	markup := tgbot.NewInlineKeyboardMarkup(row)
-	return markup
 }

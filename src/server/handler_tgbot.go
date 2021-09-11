@@ -2,7 +2,6 @@ package server
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -144,65 +143,6 @@ func (s *Server) chListHandler(update tgbot.Update) {
 	} else {
 		msgConfig = tgbot.NewMessage(chatID, "You already subscribed following channels:")
 		msgConfig.ReplyMarkup = markup
-	}
-}
-
-func (s *Server) newChannelListMarkUp(chatID int64, page int) (*tgbot.InlineKeyboardMarkup, error) {
-	const MAX_LIST_LENGTH = 5
-
-	channels, err := s.db.getChannelsByChatID(chatID)
-	if err != nil {
-		return nil, err
-	} else {
-		var rows [][]tgbot.InlineKeyboardButton
-
-		// Limited list length
-		offset := page * MAX_LIST_LENGTH
-		length := len(channels) - offset
-		if length > MAX_LIST_LENGTH {
-			length = MAX_LIST_LENGTH
-		}
-
-		for i := offset; i < offset+length; i++ {
-			data := make(map[string]interface{})
-			data["type"] = "list"
-			data["page"] = page
-			data["channelID"] = channels[i].id
-			b, _ := json.Marshal(data)
-
-			button := tgbot.NewInlineKeyboardButtonData(channels[i].title, string(b))
-			row := tgbot.NewInlineKeyboardRow(button)
-			rows = append(rows, row)
-		}
-
-		var buttons []tgbot.InlineKeyboardButton
-
-		if page != 0 {
-			data := make(map[string]interface{})
-			data["type"] = "list"
-			data["page"] = page - 1
-			b, _ := json.Marshal(data)
-			button := tgbot.NewInlineKeyboardButtonData("←", string(b))
-			buttons = append(buttons, button)
-		}
-
-		if len(channels)-offset > MAX_LIST_LENGTH {
-			data := make(map[string]interface{})
-			data["type"] = "list"
-			data["page"] = page + 1
-			b, _ := json.Marshal(data)
-			button := tgbot.NewInlineKeyboardButtonData("→", string(b))
-			buttons = append(buttons, button)
-		}
-
-		if len(buttons) != 0 {
-			row := tgbot.NewInlineKeyboardRow(buttons...)
-			rows = append(rows, row)
-		}
-
-		markup := tgbot.NewInlineKeyboardMarkup(rows...)
-
-		return &markup, nil
 	}
 }
 
@@ -803,135 +743,7 @@ func (s *Server) downloadHandler(update tgbot.Update) {
 	}
 }
 
-func (s *Server) callbackHandler(update tgbot.Update) {
-	// Basic callback info
-	callbackID := update.CallbackQuery.ID
-	chatID := update.CallbackQuery.Message.Chat.ID
-	msgID := update.CallbackQuery.Message.MessageID
-
-	// Decode callback data
-	data := make(map[string]interface{})
-	json.Unmarshal([]byte(update.CallbackQuery.Data), &data)
-
-	var cfg tgbot.CallbackConfig
-
-	switch data["type"] {
-	case "record":
-		videoID := data["videoID"]
-
-		if _, err := s.db.Exec(
-			"INSERT IGNORE INTO records (chatID, videoID) VALUES (?, ?);",
-			chatID, videoID,
-		); err != nil {
-			glog.Error(err)
-			cfg = tgbot.NewCallback(callbackID, "Internal server error")
-			s.tg.AnswerCallbackQuery(cfg)
-		} else {
-			cfg = tgbot.NewCallback(callbackID, fmt.Sprintf("Add %s recorder", videoID))
-			s.tg.AnswerCallbackQuery(cfg)
-
-			cfg := tgbot.NewEditMessageReplyMarkup(chatID, msgID,
-				tgbot.InlineKeyboardMarkup{InlineKeyboard: [][]tgbot.InlineKeyboardButton{{}}})
-			s.tgSend(cfg)
-		}
-	case "list":
-		channelID, ok := data["channelID"]
-		if !ok {
-			// Turn page
-			page := data["page"]
-			markup, err := s.newChannelListMarkUp(chatID, int(page.(float64)))
-			if err != nil {
-				glog.Error(err)
-			} else {
-				cfg := tgbot.NewEditMessageReplyMarkup(chatID, msgID, *markup)
-				s.tgSend(cfg)
-			}
-		} else {
-			// Subscribed channel operation
-			delete(data, "channelID")
-			b, _ := json.Marshal(data)
-			cancel := tgbot.NewInlineKeyboardButtonData("Cancel", string(b))
-
-			data := make(map[string]interface{})
-			data["type"] = "remove"
-			data["channelID"] = channelID
-
-			// Get channel title
-			var channelTitle string
-			err := s.db.QueryRow("SELECT title FROM channels WHERE id = ?;", channelID).Scan(&channelTitle)
-			if err != nil {
-				glog.Error(err)
-				cfg = tgbot.NewCallback(callbackID, "Internal server error")
-				s.tg.AnswerCallbackQuery(cfg)
-				return
-			}
-
-			b, _ = json.Marshal(data)
-			remove := tgbot.NewInlineKeyboardButtonData("Remove", string(b))
-
-			row := tgbot.NewInlineKeyboardRow(remove, cancel)
-			markup := tgbot.NewInlineKeyboardMarkup(row)
-
-			link := tgbot.InlineLink(tgbot.EscapeText(channelTitle), "https://www.youtube.com/channel/"+channelID.(string))
-			cfg := tgbot.NewEditMessageTextAndMarkup(chatID, msgID, fmt.Sprintf("Do you want to remove %s?", link), markup)
-			s.tgSend(cfg)
-		}
-	case "remove":
-		channelID := data["channelID"].(string)
-
-		// Get channel title
-		var channelTitle string
-		err := s.db.QueryRow("SELECT title FROM channels WHERE id = ?;", channelID).Scan(&channelTitle)
-		if err != nil {
-			glog.Error(err)
-			cfg = tgbot.NewCallback(callbackID, "Internal server error")
-			s.tg.AnswerCallbackQuery(cfg)
-			return
-		}
-
-		// Remove subscription
-		_, err = s.db.Exec("DELETE FROM subscribers WHERE chatID = ? AND channelID = ?;", chatID, channelID)
-		if err != nil {
-			glog.Error(err)
-			cfg = tgbot.NewCallback(callbackID, "Internal server error")
-			s.tg.AnswerCallbackQuery(cfg)
-			return
-		}
-
-		link := tgbot.InlineLink(tgbot.EscapeText(channelTitle), "https://www.youtube.com/channel/"+channelID)
-		cfg := tgbot.NewEditMessageText(chatID, msgID, fmt.Sprintf("You already unsubscribe\n%s", link))
-		s.tgSend(cfg)
-
-		// Check not subscribed channels & unsubscribe them from hub
-		go func() {
-			var channelIDs []string
-
-			err := s.db.queryResults(
-				&channelIDs,
-				func(rows *sql.Rows, dest interface{}) error {
-					r := dest.(*string)
-					return rows.Scan(r)
-				},
-				"SELECT channels.id FROM "+
-					"channels LEFT JOIN subscribers ON channels.id = subscribers.channelID "+
-					"WHERE subscribers.chatID IS NULL;",
-			)
-
-			if err != nil {
-				glog.Error(err)
-				return
-			}
-
-			for _, id := range channelIDs {
-				if _, err := s.db.Exec("DELETE FROM channels WHERE id = ?;", id); err != nil {
-					glog.Error(err)
-					continue
-				}
-
-				s.hub.Unsubscribe(id)
-			}
-		}()
-	default:
-		glog.Errorf("Invalid callback type: %v", data["type"])
-	}
+func (s *Server) internalServerErrorCallback(callbackID string) {
+	cfg := tgbot.NewCallback(callbackID, "Internal server error")
+	s.tg.AnswerCallbackQuery(cfg)
 }
