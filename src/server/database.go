@@ -116,6 +116,17 @@ func (db *database) getChannels() ([]Channel, error) {
 	return channels, nil
 }
 
+func (db *database) getChannelTitle(channelID string) (string, error) {
+	var title string
+
+	err := db.QueryRow("SELECT title FROM channels WHERE id = ?;", channelID).Scan(&title)
+	if err != nil {
+		return "", err
+	}
+
+	return title, nil
+}
+
 func (db *database) getChannelsByChatID(chatID int64) ([]Channel, error) {
 	var results []Channel
 

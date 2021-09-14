@@ -130,3 +130,11 @@ var NewEditMessageReplyMarkup = api.NewEditMessageReplyMarkup
 // EditMessageReplyMarkupConfig allows you to modify the reply markup
 // of a message.
 type EditMessageReplyMarkupConfig = api.EditMessageReplyMarkupConfig
+
+// ForceReply allows the Bot to have users directly reply to it without
+// additional interaction.
+type ForceReply = api.ForceReply
+
+// Message is returned by almost every request, and contains data about
+// almost anything.
+type Message = api.Message

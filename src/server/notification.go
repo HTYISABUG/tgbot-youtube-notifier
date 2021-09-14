@@ -1,8 +1,6 @@
 package server
 
 import (
-	"fmt"
-
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/ytapi"
 	"github.com/golang/glog"
@@ -59,15 +57,9 @@ func (s *Server) sendNotices(video *ytapi.Video) {
 			}
 
 			// Send message
-			message, err := s.tg.Send(msgConfig)
+			message, err := s.tgSend(msgConfig)
 			if err != nil {
-				switch err.(type) {
-				case tgbot.Error:
-					glog.Error(err)
-					fmt.Println(msgConfig.Text)
-				default:
-					glog.Warning(err)
-				}
+				continue
 			}
 
 			n.messageID = message.MessageID

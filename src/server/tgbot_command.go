@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"runtime/debug"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,8 +17,8 @@ import (
 	"github.com/golang/glog"
 )
 
-func (s *Server) tgSend(c tgbot.Chattable) {
-	_, err := s.tg.Send(c)
+func (s *Server) tgSend(c tgbot.Chattable) (tgbot.Message, error) {
+	msg, err := s.tg.Send(c)
 	if err != nil {
 		switch err.(type) {
 		case tgbot.Error:
@@ -41,6 +40,8 @@ func (s *Server) tgSend(c tgbot.Chattable) {
 			glog.Warning(err)
 		}
 	}
+
+	return msg, err
 }
 
 // chAddHandler handles channel subscribe request.
@@ -143,91 +144,6 @@ func (s *Server) chListHandler(update tgbot.Update) {
 	} else {
 		msgConfig = tgbot.NewMessage(chatID, "You already subscribed following channels:")
 		msgConfig.ReplyMarkup = markup
-	}
-}
-
-// chRemoveHandler handles channel unsubscribe request.
-func (s *Server) chRemoveHandler(update tgbot.Update) {
-	chatID := update.Message.Chat.ID
-	elements := strings.Fields(update.Message.Text)
-
-	var msgConfig tgbot.MessageConfig
-	defer func() {
-		msgConfig.DisableNotification = true
-		msgConfig.DisableWebPagePreview = true
-		s.tgSend(msgConfig)
-	}()
-
-	if len(elements) == 1 {
-		msgConfig = tgbot.NewMessage(
-			chatID,
-			"Please use /list to find the channel numbers which you want to unsubscribe\\. "+
-				"Then use "+tgbot.InlineCode("/remove <number> ...")+" to unsubscribe\\.",
-		)
-		return
-	}
-
-	channels, err := s.db.getChannelsByChatID(chatID)
-	if err != nil {
-		glog.Error(err)
-		msgConfig = tgbot.NewMessage(chatID, "Can not unsubscribe channels.\nInternal server error.")
-	} else {
-		list := []string{"You already unsubscribe following channels:"}
-		set := make(map[int64]bool)
-
-		// Get not repeating channel indices
-		for _, i := range elements[1:] {
-			idx, err := strconv.ParseInt(i, 10, 64)
-			if err != nil || idx >= int64(len(channels)) {
-				continue
-			}
-			set[idx] = true
-		}
-
-		// Run unsubscription
-		for idx := range set {
-			if _, err := s.db.Exec("DELETE FROM subscribers WHERE chatID = ? AND channelID = ?;", chatID, channels[idx].id); err != nil {
-				glog.Error(err)
-				continue
-			}
-
-			chTitle := tgbot.EscapeText(channels[idx].title)
-			chLink := tgbot.InlineLink(chTitle, "https://www.youtube.com/channel/"+channels[idx].id)
-			list = append(list, chLink)
-		}
-
-		// Send message
-		msgConfig = tgbot.NewMessage(chatID, strings.Join(list, "\n"))
-
-		// Check not subscribed channels & unsubscribe them from hub
-		go func() {
-			var chIDs []string
-
-			err := s.db.queryResults(
-				&chIDs,
-				func(rows *sql.Rows, dest interface{}) error {
-					r := dest.(*string)
-					return rows.Scan(r)
-				},
-				"SELECT channels.id FROM "+
-					"channels LEFT JOIN subscribers ON channels.id = subscribers.channelID "+
-					"WHERE subscribers.chatID IS NULL;",
-			)
-
-			if err != nil {
-				glog.Error(err)
-				return
-			}
-
-			for _, id := range chIDs {
-				if _, err := s.db.Exec("DELETE FROM channels WHERE id = ?;", id); err != nil {
-					glog.Error(err)
-					continue
-				}
-
-				s.hub.Unsubscribe(id)
-			}
-		}()
 	}
 }
 

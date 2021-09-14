@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/HTYISABUG/tgbot-youtube-notifier/src/tgbot"
 	"github.com/golang/glog"
@@ -15,13 +16,15 @@ const (
 	Record CallbackDataType = iota
 	List
 	Operation
+	Filter
 	Remove
 )
 
 type OperationType int
 
 const (
-	RemoveOp OperationType = iota
+	FilterOp OperationType = iota
+	RemoveOp
 	BackOp
 )
 
@@ -42,6 +45,8 @@ func (s *Server) callbackHandler(update tgbot.Update) {
 		err = s.callbackListHandler(update)
 	case Operation:
 		err = s.callbackOpHandler(update)
+	case Filter:
+		err = s.callbackFilterHandler(update)
 	case Remove:
 		err = s.callbackRemoveHandler(update)
 	default:
@@ -51,7 +56,10 @@ func (s *Server) callbackHandler(update tgbot.Update) {
 	if err != nil {
 		s.internalServerErrorCallback(callbackID)
 		glog.Error(err)
+		return
 	}
+
+	s.tg.AnswerCallbackQuery(tgbot.CallbackConfig{CallbackQueryID: callbackID})
 }
 
 func (s *Server) newRecordButtonMarkup(videoID string) (*tgbot.InlineKeyboardMarkup, error) {
@@ -185,13 +193,12 @@ func (s *Server) callbackListHandler(update tgbot.Update) error {
 		}
 
 		// Get channel title
-		var channelTitle string
-		err = s.db.QueryRow("SELECT title FROM channels WHERE id = ?;", data.ChannelID).Scan(&channelTitle)
+		title, err := s.db.getChannelTitle(data.ChannelID)
 		if err != nil {
 			return err
 		}
 
-		link := tgbot.InlineLink(tgbot.EscapeText(channelTitle), "https://www.youtube.com/channel/"+data.ChannelID)
+		link := tgbot.InlineLink(tgbot.EscapeText(title), "https://www.youtube.com/channel/"+data.ChannelID)
 		cfg := tgbot.NewEditMessageTextAndMarkup(chatID, msgID, fmt.Sprintf("Here it is: %s\nWhat do you want to do with the channel?", link), *markup)
 		s.tgSend(cfg)
 	}
@@ -203,6 +210,17 @@ func (s *Server) newChannelOpMarkUp(channelID string, page int) (*tgbot.InlineKe
 	var data map[string]interface{}
 	var b []byte
 	var buttons [][]tgbot.InlineKeyboardButton
+
+	// Construct `filter` button
+	data = make(map[string]interface{})
+	data["type"] = Operation
+	data["cid"] = channelID
+	data["op"] = FilterOp
+	data["page"] = page
+
+	b, _ = json.Marshal(data)
+	filter := tgbot.NewInlineKeyboardButtonData("Filter", string(b))
+	buttons = append(buttons, tgbot.NewInlineKeyboardRow(filter))
 
 	// Construct `remove` button
 	data = make(map[string]interface{})
@@ -245,6 +263,53 @@ func (s *Server) callbackOpHandler(update tgbot.Update) error {
 	json.Unmarshal([]byte(update.CallbackQuery.Data), &data)
 
 	switch data.Op {
+	case FilterOp:
+		markup, err := s.newChannelFilterMarkUp(data.ChannelID, data.Page)
+		if err != nil {
+			return err
+		}
+
+		// Get channel title
+		title, err := s.db.getChannelTitle(data.ChannelID)
+		if err != nil {
+			return err
+		}
+
+		link := tgbot.InlineLink(tgbot.EscapeText(title), "https://www.youtube.com/channel/"+data.ChannelID)
+
+		type Filter struct {
+			block   bool
+			content string
+		}
+
+		var filters []Filter
+
+		if err := s.db.queryResults(
+			&filters,
+			func(rows *sql.Rows, dest interface{}) error {
+				filter := dest.(*Filter)
+				return rows.Scan(&filter.block, &filter.content)
+			},
+			"SELECT block, content FROM filters WHERE chatID = ? AND channelID = ?;",
+			chatID, data.ChannelID,
+		); err != nil {
+			return err
+		}
+
+		var black, white string
+		for _, v := range filters {
+			if v.block {
+				black = v.content
+			} else {
+				white = v.content
+			}
+		}
+
+		cfg := tgbot.NewEditMessageTextAndMarkup(chatID, msgID, fmt.Sprintf(
+			"Setup notify filter: %s\n\n_blacklist:_\n%s\n\n_whitelist:_\n%s",
+			link, tgbot.EscapeText(black), tgbot.EscapeText(white),
+		), *markup)
+		s.tgSend(cfg)
 	case RemoveOp:
 		markup, err := s.newChannelRemoveMarkUp(data.ChannelID, data.Page)
 		if err != nil {
@@ -252,13 +317,12 @@ func (s *Server) callbackOpHandler(update tgbot.Update) error {
 		}
 
 		// Get channel title
-		var channelTitle string
-		err = s.db.QueryRow("SELECT title FROM channels WHERE id = ?;", data.ChannelID).Scan(&channelTitle)
+		title, err := s.db.getChannelTitle(data.ChannelID)
 		if err != nil {
 			return err
 		}
 
-		link := tgbot.InlineLink(tgbot.EscapeText(channelTitle), "https://www.youtube.com/channel/"+data.ChannelID)
+		link := tgbot.InlineLink(tgbot.EscapeText(title), "https://www.youtube.com/channel/"+data.ChannelID)
 		cfg := tgbot.NewEditMessageTextAndMarkup(chatID, msgID, fmt.Sprintf("Do you really want to remove %s?", link), *markup)
 		s.tgSend(cfg)
 	case BackOp:
@@ -272,6 +336,187 @@ func (s *Server) callbackOpHandler(update tgbot.Update) error {
 	}
 
 	return nil
+}
+
+func (s *Server) newChannelFilterMarkUp(channelID string, page int) (*tgbot.InlineKeyboardMarkup, error) {
+	var data map[string]interface{}
+	var b []byte
+	var rows [][]tgbot.InlineKeyboardButton
+
+	// Construct `blacklist` button
+	data = make(map[string]interface{})
+	data["type"] = Filter
+	data["cid"] = channelID
+	data["block"] = 1
+	data["page"] = page
+
+	b, _ = json.Marshal(data)
+	blacklist := tgbot.NewInlineKeyboardButtonData("blacklist", string(b))
+
+	// Construct `whitelist` button
+	data = make(map[string]interface{})
+	data["type"] = Filter
+	data["cid"] = channelID
+	data["block"] = 0
+	data["page"] = page
+
+	b, _ = json.Marshal(data)
+	whitelist := tgbot.NewInlineKeyboardButtonData("whitelist", string(b))
+
+	rows = append(rows, tgbot.NewInlineKeyboardRow(blacklist, whitelist))
+
+	// Construct `back` button
+	data = make(map[string]interface{})
+	data["type"] = List
+	data["cid"] = channelID
+	data["page"] = page
+
+	b, _ = json.Marshal(data)
+	back := tgbot.NewInlineKeyboardButtonData("« Back to Operation List", string(b))
+
+	rows = append(rows, tgbot.NewInlineKeyboardRow(back))
+
+	markup := tgbot.NewInlineKeyboardMarkup(rows...)
+
+	return &markup, nil
+}
+
+func (s *Server) callbackFilterHandler(update tgbot.Update) error {
+	// Basic callback info
+	chatID := update.CallbackQuery.Message.Chat.ID
+
+	// Decode callback data
+	var data struct {
+		MessageID int
+		ChannelID string `json:"cid"`
+		Block     int    `json:"block"`
+		Page      int    `json:"page"`
+	}
+
+	json.Unmarshal([]byte(update.CallbackQuery.Data), &data)
+
+	title, err := s.db.getChannelTitle(data.ChannelID)
+	if err != nil {
+		return err
+	}
+
+	link := tgbot.InlineLink(tgbot.EscapeText(title), "https://www.youtube.com/channel/"+data.ChannelID)
+
+	var listname string
+	if data.Block != 0 {
+		listname = "blacklist"
+	} else {
+		listname = "whitelist"
+	}
+
+	cfg := tgbot.NewMessage(chatID, fmt.Sprintf("Setup notify %s: %s\nSeperated by comma, input `\\-\\-` to clear filter\\.", listname, link))
+	cfg.ReplyMarkup = tgbot.ForceReply{ForceReply: true}
+
+	msg, err := s.tgSend(cfg)
+	if err != nil {
+		return nil
+	}
+
+	data.MessageID = msg.MessageID
+	chatLatestPendingReplyData[chatID] = data
+
+	return nil
+}
+
+var chatLatestPendingReplyData = make(map[int64]struct {
+	MessageID int
+	ChannelID string `json:"cid"`
+	Block     int    `json:"block"`
+	Page      int    `json:"page"`
+})
+
+func (s *Server) filterReplyHandler(update tgbot.Update) error {
+	chatID := update.Message.Chat.ID
+
+	var cfg tgbot.MessageConfig
+
+	if data, ok := chatLatestPendingReplyData[chatID]; ok {
+		if update.Message.Text == "--" {
+			// Clear filter
+			if _, err := s.db.Exec(
+				"INSERT INTO filters (chatID, channelID, block, content) VALUES(?, ?, ?, ?) "+
+					"ON DUPLICATE KEY UPDATE content = VALUES(content);",
+				chatID, data.ChannelID, data.Block != 0, "",
+			); err != nil {
+				return err
+			}
+		} else {
+			elements := strings.Split(update.Message.Text, ",")
+
+			// Remove prefix & suffix space characters
+			for i, v := range elements {
+				elements[i] = strings.TrimSpace(v)
+			}
+
+			if _, err := s.db.Exec(
+				"INSERT INTO filters (chatID, channelID, block, content) VALUES(?, ?, ?, ?) "+
+					"ON DUPLICATE KEY UPDATE content = VALUES(content);",
+				chatID, data.ChannelID, data.Block != 0, strings.Join(elements, ","),
+			); err != nil {
+				return err
+			}
+		}
+
+		markup, err := s.newFilterReplyMarkUp(data.ChannelID, data.Page)
+		if err != nil {
+			return err
+		}
+
+		cfg = tgbot.NewMessage(chatID, tgbot.EscapeText("Success! Filter updated."))
+		cfg.ReplyMarkup = markup
+	} else {
+		cfg = tgbot.NewMessage(chatID, tgbot.EscapeText("This message is too old."))
+	}
+
+	s.tgSend(cfg)
+
+	return nil
+}
+
+func (s *Server) newFilterReplyMarkUp(channelID string, page int) (*tgbot.InlineKeyboardMarkup, error) {
+	var data map[string]interface{}
+	var b []byte
+	var rows [][]tgbot.InlineKeyboardButton
+
+	// Construct `back to operation` button
+	data = make(map[string]interface{})
+	data["type"] = List
+	data["cid"] = channelID
+	data["page"] = page
+
+	b, _ = json.Marshal(data)
+	operation := tgbot.NewInlineKeyboardButtonData("« Back to Operation List", string(b))
+
+	// Construct `back to filter operation` button
+	data = make(map[string]interface{})
+	data["type"] = Operation
+	data["cid"] = channelID
+	data["op"] = FilterOp
+	data["page"] = page
+
+	b, _ = json.Marshal(data)
+	filter := tgbot.NewInlineKeyboardButtonData("« Back to Filter Operation", string(b))
+
+	rows = append(rows, tgbot.NewInlineKeyboardRow(operation, filter))
+
+	// Construct `back to channel list` button
+	data = make(map[string]interface{})
+	data["type"] = Operation
+	data["op"] = BackOp
+	data["page"] = page
+
+	b, _ = json.Marshal(data)
+	channelList := tgbot.NewInlineKeyboardButtonData("« Back to Channel List", string(b))
+
+	rows = append(rows, tgbot.NewInlineKeyboardRow(channelList))
+	markup := tgbot.NewInlineKeyboardMarkup(rows...)
+
+	return &markup, nil
 }
 
 func (s *Server) newChannelRemoveMarkUp(channelID string, page int) (*tgbot.InlineKeyboardMarkup, error) {
@@ -314,8 +559,7 @@ func (s *Server) callbackRemoveHandler(update tgbot.Update) error {
 	json.Unmarshal([]byte(update.CallbackQuery.Data), &data)
 
 	// Get channel title
-	var channelTitle string
-	err := s.db.QueryRow("SELECT title FROM channels WHERE id = ?;", data.ChannelID).Scan(&channelTitle)
+	title, err := s.db.getChannelTitle(data.ChannelID)
 	if err != nil {
 		return err
 	}
@@ -326,8 +570,8 @@ func (s *Server) callbackRemoveHandler(update tgbot.Update) error {
 		return err
 	}
 
-	link := tgbot.InlineLink(tgbot.EscapeText(channelTitle), "https://www.youtube.com/channel/"+data.ChannelID)
-	cfg := tgbot.NewEditMessageText(chatID, msgID, fmt.Sprintf("You already unsubscribe\n%s", link))
+	link := tgbot.InlineLink(tgbot.EscapeText(title), "https://www.youtube.com/channel/"+data.ChannelID)
+	cfg := tgbot.NewEditMessageText(chatID, msgID, fmt.Sprintf("You have unsubscribed\n%s", link))
 	s.tgSend(cfg)
 
 	// Check not subscribed channels & unsubscribe them from hub
@@ -359,5 +603,6 @@ func (s *Server) callbackRemoveHandler(update tgbot.Update) error {
 			s.hub.Unsubscribe(id)
 		}
 	}()
+
 	return nil
 }

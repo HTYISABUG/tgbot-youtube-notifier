@@ -156,25 +156,32 @@ func (s *Server) handlerRelay() {
 		select {
 		// Tgbot handler
 		case update := <-s.tgUpdatesCh:
-			if update.Message != nil && update.Message.Text != "" {
-				elements := strings.Fields(update.Message.Text)
-				switch elements[0] {
-				case "/add":
-					go s.chAddHandler(update)
-				case "/list":
-					go s.chListHandler(update)
-				case "/remove":
-					go s.chRemoveHandler(update)
-				case "/remind":
-					go s.remindHandler(update)
-				case "/schedule":
-					go s.scheduleHandler(update)
-				case "/filter":
-					go s.filterHandler(update)
-				case "~autorc":
-					go s.autoRecordHandler(update)
-				case "~dl":
-					go s.downloadHandler(update)
+			if update.Message != nil {
+				if update.Message.ReplyToMessage != nil {
+					go func() {
+						err := s.filterReplyHandler(update)
+						if err != nil {
+							glog.Error(err)
+						}
+					}()
+				} else if update.Message.Text != "" {
+					elements := strings.Fields(update.Message.Text)
+					switch elements[0] {
+					case "/add":
+						go s.chAddHandler(update)
+					case "/list":
+						go s.chListHandler(update)
+					case "/remind":
+						go s.remindHandler(update)
+					case "/schedule":
+						go s.scheduleHandler(update)
+					case "/filter":
+						go s.filterHandler(update)
+					case "~autorc":
+						go s.autoRecordHandler(update)
+					case "~dl":
+						go s.downloadHandler(update)
+					}
 				}
 			} else if update.CallbackQuery != nil {
 				go s.callbackHandler(update)
