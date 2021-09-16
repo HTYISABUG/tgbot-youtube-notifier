@@ -450,7 +450,7 @@ func (s *Server) filterReplyHandler(update tgbot.Update) error {
 
 			// Remove prefix & suffix space characters
 			for i, v := range elements {
-				elements[i] = strings.TrimSpace(v)
+				elements[i] = strings.ToLower(strings.TrimSpace(v))
 			}
 
 			if _, err := s.db.Exec(
